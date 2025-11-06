@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/home/slab/ishiiayuka/M2/Decoder/main_DeepCLIP_NAR.py", line 3, in <module>
-    from dataset import DeepCLIPProteinDataset
-  File "/home/slab/ishiiayuka/M2/Decoder/dataset.py", line 5, in <module>
-    import Decoder.config as config
-ModuleNotFoundError: No module named 'Decoder'

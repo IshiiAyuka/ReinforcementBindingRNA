@@ -30,11 +30,11 @@ env/
 *.mmdb
 *.ffindex
 *.ffdata
-.fasta
-.csv
-.ali
-.pt
-.log
+*.fasta
+*.csv
+*.ali
+*.pt
+*.log
 
 # OS
 .DS_Store

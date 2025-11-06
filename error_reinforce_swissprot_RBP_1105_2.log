@@ -1,19 +1,0 @@
-Batches:   0%|          | 0/4308 [00:00<?, ?it/s]Batches:   0%|          | 1/4308 [03:21<241:13:00, 201.62s/it]Batches:   0%|          | 2/4308 [05:53<206:06:52, 172.32s/it]Batches:   0%|          | 3/4308 [08:28<196:30:19, 164.33s/it]Batches:   0%|          | 4/4308 [11:14<197:33:49, 165.25s/it]Batches:   0%|          | 5/4308 [13:50<193:25:27, 161.82s/it]Batches:   0%|          | 6/4308 [16:54<202:25:52, 169.40s/it]Batches:   0%|          | 7/4308 [19:46<203:28:52, 170.32s/it]Batches:   0%|          | 8/4308 [22:15<195:09:29, 163.39s/it]Batches:   0%|          | 9/4308 [24:49<191:36:45, 160.46s/it]Batches:   0%|          | 10/4308 [27:16<186:45:09, 156.42s/it]Batches:   0%|          | 10/4308 [36:01<258:01:25, 216.12s/it]
-Traceback (most recent call last):
-  File "/home/slab/ishiiayuka/M2/reinforce_ppi3d_NAR_offtarget_fasta.py", line 372, in <module>
-    main()
-  File "/home/slab/ishiiayuka/M2/reinforce_ppi3d_NAR_offtarget_fasta.py", line 317, in main
-    scores_off = luca_pool.score_pairs(prot_off, rna_off, device=device)  # 長さ B*(B-1)
-  File "/home/slab/ishiiayuka/M2/reinforce_ppi3d_NAR_offtarget_fasta.py", line 102, in score_pairs
-    job_id, indices, probs = self.result_q.get()
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/multiprocessing/queues.py", line 103, in get
-    res = self._recv_bytes()
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/multiprocessing/connection.py", line 221, in recv_bytes
-    buf = self._recv_bytes(maxlength)
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/multiprocessing/connection.py", line 419, in _recv_bytes
-    buf = self._recv(4)
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/multiprocessing/connection.py", line 384, in _recv
-    chunk = read(handle, remaining)
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/site-packages/torch/utils/data/_utils/signal_handling.py", line 66, in handler
-    _error_if_any_worker_fails()
-RuntimeError: DataLoader worker (pid 310060) is killed by signal: Terminated. 

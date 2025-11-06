@@ -1,24 +1,0 @@
-step:   0%|          | 0/10 [00:00<?, ?it/s]
-Samples:   0%|          | 0/1713 [00:00<?, ?it/s][A
-Samples:   0%|          | 1/1713 [00:23<11:21:47, 23.89s/it][A
-Samples:   0%|          | 2/1713 [00:25<5:04:22, 10.67s/it] [A
-Samples:   0%|          | 3/1713 [00:26<3:03:57,  6.45s/it][A
-Samples:   0%|          | 4/1713 [00:28<2:12:43,  4.66s/it][A
-Samples:   0%|          | 5/1713 [00:30<1:44:36,  3.67s/it][A
-Samples:   0%|          | 6/1713 [00:32<1:23:54,  2.95s/it][A
-Samples:   0%|          | 7/1713 [00:33<1:09:49,  2.46s/it][A
-Samples:   0%|          | 8/1713 [00:35<1:06:58,  2.36s/it][A
-Samples:   1%|          | 9/1713 [00:37<58:27,  2.06s/it]  [A
-Samples:   1%|          | 10/1713 [00:38<56:39,  2.00s/it][A
-Samples:   1%|          | 11/1713 [00:40<54:05,  1.91s/it][A
-                                                          [Astep:   0%|          | 0/10 [00:42<?, ?it/s]
-Traceback (most recent call last):
-  File "/home/slab/ishiiayuka/M2/reinforce.py", line 237, in <module>
-    torch.save(
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
-    return
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/site-packages/torch/serialization.py", line 475, in __exit__
-    self.file_like.write_end_of_file()
-  File "/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/site-packages/torch/utils/data/_utils/signal_handling.py", line 66, in handler
-    _error_if_any_worker_fails()
-RuntimeError: DataLoader worker (pid 2991371) is killed by signal: Terminated. 

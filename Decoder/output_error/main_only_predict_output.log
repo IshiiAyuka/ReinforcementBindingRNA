@@ -1,5 +1,0 @@
-[DeepCLIPProteinDataset] 有効 112 件 / スキップ 8 件
-Testデータ数: 112
-[ckpt] missing=0 unexpected=0
-モデルの重みを読み込みました。
-全候補をcsvファイルに保存しました。
