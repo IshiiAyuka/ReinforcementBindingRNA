@@ -1,0 +1,5 @@
+Batches:   0%|          | 0/857 [00:00<?, ?it/s]
+Steps (batch 0):   0%|          | 0/20 [00:00<?, ?it/s][A/home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/envs/reinforce/lib/python3.9/site-packages/torch/nn/functional.py:5137: UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead.
+  warnings.warn(
+
+Steps (batch 0):   5%|▌         | 1/20 [01:21<25:52, 81.72s/it][A

@@ -1,0 +1,15 @@
+inseq1 = true.fa
+inseq2 = pred.fa
+outct = true.ct
+outct2 = pred.ct
+aout = align.ali
+percent = 20
+maxtrace = 200
+bpwin = 2
+awin = 1
+optimal_only = 1
+local = 1
+fgap = 0.4
+slope = 0.1
+intercept = 0.5
+max_elongation = 5

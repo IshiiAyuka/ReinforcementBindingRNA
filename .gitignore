@@ -1,0 +1,44 @@
+# VS Code
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+env/
+*.ipynb_checkpoints
+
+# Checkpoints & weights
+*.pth
+*.ckpt
+*.h5
+
+# Arrays
+*.npz
+*.npy
+
+# 大型データ・DB類（誤アップロード防止）
+*.tar
+*.tar.gz
+*.zip
+*.gz
+*.bz2
+*.xz
+*.7z
+*.fastq
+*.mmdb
+*.ffindex
+*.ffdata
+.fasta
+.csv
+.ali
+.pt
+.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+.gitLucaOneTasks/
+RoseTTAFold2NA/
