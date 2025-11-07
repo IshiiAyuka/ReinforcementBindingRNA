@@ -39,9 +39,12 @@ env/
 *.pkl
 *.txt
 
+
 # OS
 .DS_Store
 Thumbs.db
 
 LucaOneTasks/
 RoseTTAFold2NA/
+ZHMolGraph/
+log/
