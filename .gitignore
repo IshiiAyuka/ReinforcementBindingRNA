@@ -35,6 +35,9 @@ env/
 *.ali
 *.pt
 *.log
+*.png
+*.pkl
+*.txt
 
 # OS
 .DS_Store
