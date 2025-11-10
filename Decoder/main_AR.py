@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import RNADataset, custom_collate_fn, parse_clstr
+from dataset import RNADataset_AR, custom_collate_fn
 from model import ProteinToRNA
-from train import train_model
+from train import train_model_AR
 from evaluate import evaluate_model
 from plots import plot_loss
 import random
@@ -33,8 +33,8 @@ if __name__ == "__main__":
     train_ids = {sid for cluster in clusters[:split_idx] for sid in cluster}
     test_ids = {sid for cluster in clusters[split_idx:] for sid in cluster}
 
-    dataset_train = RNADataset(config.protein_feat_path, config.csv_path, allowed_ids=train_ids)
-    dataset_test = RNADataset(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
+    dataset_train = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=train_ids)
+    dataset_test = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
 
     train_loader = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn)
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     criterion = torch.nn.CrossEntropyLoss(ignore_index=config.rna_vocab["<pad>"])
 
     # --- 学習 ---
-    loss_history = train_model(model, train_loader, optimizer, criterion, config.device, config.epochs)
+    loss_history = train_model_AR(model, train_loader, optimizer, criterion, config.device, config.epochs)
 
     # --- モデル保存 ---
     torch.save(model.state_dict(), config.save_model)

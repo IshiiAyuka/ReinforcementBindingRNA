@@ -29,5 +29,5 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # --- 保存先設定 ---
-save_model = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_NAR_100nt_1106.pt"
-save_lossplot = "loss_plot_1106.png"
+save_model = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
+save_lossplot = "loss_plot_1110.png"
