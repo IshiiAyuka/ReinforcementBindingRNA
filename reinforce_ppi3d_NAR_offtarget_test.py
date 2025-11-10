@@ -277,7 +277,7 @@ def main():
 
         H_seq = (H_tok * include.float()).sum(1) / len_norm   # [B]
         entropy_bonus = H_seq.mean()
-        beta_entropy = 0.02
+        beta_entropy = 0.01
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab_NAR, eos_id, pad_id, sos_id)

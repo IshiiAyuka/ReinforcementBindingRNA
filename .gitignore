@@ -3,7 +3,6 @@
 
 # Python
 __pycache__/
-*.py[cod]
 *.egg-info/
 .venv/
 env/
@@ -48,3 +47,4 @@ LucaOneTasks/
 RoseTTAFold2NA/
 ZHMolGraph/
 log/
+mmcif_protein_rna
