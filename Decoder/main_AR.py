@@ -1,14 +1,14 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import RNADataset_AR, custom_collate_fn
-from model import ProteinToRNA
-from train import train_model_AR
-from evaluate import evaluate_model
+from dataset import RNADataset_NAR,RNADataset_AR, custom_collate_fn
+from model import ProteinToRNA_NAR, ProteinToRNA
+from train import train_model_NAR,train_model_AR
+from evaluate import evaluate_model_NAR,evaluate_model
 from plots import plot_loss
 import random
 import config
-from predict import show_test_samples
+from predict import show_test_samples_NAR, show_test_samples, sample_decode_multi
 from collections import defaultdict
 import pandas as pd
 
@@ -33,8 +33,8 @@ if __name__ == "__main__":
     train_ids = {sid for cluster in clusters[:split_idx] for sid in cluster}
     test_ids = {sid for cluster in clusters[split_idx:] for sid in cluster}
 
-    dataset_train = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=train_ids)
-    dataset_test = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
+    dataset_train = RNADataset_NAR(config.protein_feat_path, config.csv_path, allowed_ids=train_ids)
+    dataset_test = RNADataset_NAR(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
 
     train_loader = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn)
@@ -43,29 +43,30 @@ if __name__ == "__main__":
     print(f"Testデータ数: {len(dataset_test)}")
 
     # --- モデル定義 ---
-    model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
+    model = ProteinToRNA_NAR(input_dim=config.input_dim, num_layers=config.num_layers)
     model = nn.DataParallel(model)
     model = model.to(config.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
-    criterion = torch.nn.CrossEntropyLoss(ignore_index=config.rna_vocab["<pad>"])
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=config.rna_vocab["<pad>"], reduction="sum")
 
     # --- 学習 ---
-    loss_history = train_model_AR(model, train_loader, optimizer, criterion, config.device, config.epochs)
+    loss_history = train_model_NAR(model, train_loader, optimizer, criterion, config.device, config.epochs)
 
     # --- モデル保存 ---
-    torch.save(model.state_dict(), config.save_model)
+    state = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
+    torch.save(state, config.save_model)
     print("モデルを保存しました。", flush=True)
 
     # --- ロスプロット ---
     plot_loss(loss_history)
 
     # --- サンプル表示（Testデータ） ---
-    show_test_samples(model, dataset_test, config.device)
+    show_test_samples_NAR(model, dataset_test, config.device)
 
     # --- 評価 ---
     print("\n==== Testデータセット評価 ====", flush=True)
-    evaluate_model(model, dataset_test, config.device)
+    evaluate_model_NAR(model, test_loader, config.device) 
 
     print("\n==== Trainデータセット評価 ====", flush=True)
-    evaluate_model(model, dataset_train, config.device)
+    evaluate_model_NAR(model, train_loader, config.device)
 

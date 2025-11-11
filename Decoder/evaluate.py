@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-from decode import sample_decode_multi
+from decode import sample_decode_multi, greedy_decode
 from utils import global_alignment, local_alignment
 import config
 
@@ -18,7 +18,7 @@ def evaluate_model(model, loader, device):
             B = protein_batch.size(0)
             for i in range(B):
                 protein_feat = protein_batch[i].to(device)
-                predicted_ids = sample_decode_multi(model, protein_feat)     
+                predicted_ids = greedy_decode(model, protein_feat)     
                 target_ids = rna_tgt_batch[i].view(-1).tolist()[1:-1]
 
                 predicted_seq = "".join([config.rna_ivocab_NAR[i] for i in predicted_ids])

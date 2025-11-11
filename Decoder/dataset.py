@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
-import Decoder.config as config
+#import Decoder.config as config
 import config 
 
 class RNADataset_AR(Dataset):
@@ -25,7 +25,7 @@ class RNADataset_AR(Dataset):
             if rna_seq == "NAN":
                 continue
             # <sos>, <eos> を含めて max_len に収まるように
-            if not (len(rna_seq) <= config.max_len - 2):
+            if not (config.min_len <= len(rna_seq) <= config.max_len - 2):
                 continue
             if uid not in full_feats_dict:
                 continue

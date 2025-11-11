@@ -1,22 +1,49 @@
 import torch
 import torch.nn as nn
-import Decoder.config as config
-#import config 
+#import Decoder.config as config
+import config 
 import math
 
 @torch.no_grad()
-def greedy_decode(model, protein_feat, max_len=config.max_len):
+def greedy_decode(model, protein_feat):
+    """
+    逐次生成（greedy）。min_len_no_eos までは EOS を強制的に無効化。
+    戻り値は <sos> を除いたトークン列。
+    """
     model.eval()
-    generated = [config.rna_vocab["<sos>"]]
+
+    eos_id = config.rna_vocab["<eos>"]
+    pad_id = config.rna_vocab.get("<pad>", None)
+
+    generated = []
+
+    # protein_feat が 1D の場合のみバッチ次元を付与（元コードの挙動を踏襲）
+    pf = protein_feat.unsqueeze(0) if protein_feat.dim() == 1 else protein_feat
+    pf = pf.to(config.device, non_blocking=True)
+
     with torch.no_grad():
-        for _ in range(max_len):
-            tgt_seq = torch.tensor(generated, device=protein_feat.device).unsqueeze(0)
-            output = model(protein_feat.unsqueeze(0), tgt_seq)
-            next_token = output[0, -1].argmax().item()
-            if next_token == config.rna_vocab["<eos>"]:
+        for _ in range(config.max_len):
+            # 接頭辞が空でもOK：空テンソルを渡す（forwardで<sos>付与→長さ1）
+            if len(generated) == 0:
+                tgt_seq = torch.empty((1, 0), dtype=torch.long, device=config.device)
+            else:
+                tgt_seq = torch.tensor(generated, dtype=torch.long, device=config.device).unsqueeze(0)
+
+            output = model(pf, tgt_seq)      # [1, T', V]
+            logits = output[0, -1].clone()   # 次トークンのロジット
+
+            cur_len = len(generated)
+            if cur_len < config.min_len:
+                logits[eos_id] = -1e9
+            if pad_id is not None:
+                logits[pad_id] = -1e9
+
+            next_token = int(torch.argmax(logits).item())
+            if (next_token == eos_id) and (cur_len >= config.min_len):
                 break
             generated.append(next_token)
-    return generated[1:] 
+
+    return generated
 
 def sample_decode(model, protein_feat, max_len=config.max_len, num_samples=config.num_samples, top_k=config.top_k, temperature=1.0):
     device = protein_feat.device
