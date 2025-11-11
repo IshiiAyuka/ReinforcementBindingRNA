@@ -242,7 +242,7 @@ def main():
         sos_id  = config.rna_vocab_NAR["<sos>"]
         mask_id = config.rna_vocab_NAR["<MASK>"]
 
-        # ========= 2) サンプリング（sample_decode_multiで生成）=========
+        # ========= サンプリング（sample_decode_multiで生成）=========
         with torch.no_grad():
             was_training = model.training
             model.eval()
@@ -251,8 +251,8 @@ def main():
                 protein_feat,
                 max_len=config.max_len,
                 num_samples=1,
-                top_k=getattr(config, "top_k", None),
-                temperature=getattr(config, "temp", 1.0),
+                top_k=config.top_k,
+                temperature=config.temp,
             )  # List[List[int]]（<eos>以降なし）
             if was_training:
                 model.train()
@@ -265,16 +265,19 @@ def main():
             ln = min(len(seq), L)
             if ln > 0:
                 tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
-            if ln < L:
+            if ln < L and ln >= config.min_len:
                 tokens[i, ln] = eos_id
 
-        # ========= 1) 並列forward（損失用；サンプルと同条件）=========
+        # ========= 並列forward（損失用；サンプルと同条件）=========
+        loss_was_training = model.training
+        model.eval()
         if isinstance(model, nn.DataParallel):
             logits = model.module.forward_parallel(protein_feat, out_len=L)  # [B, L, V]
         else:
             logits = model.forward_parallel(protein_feat, out_len=L)
+        if loss_was_training:
+            model.train()
 
-        # サンプル時と同じ ban / min_len / temperature / top-k を適用
         logits = logits.clone()
         logits[..., pad_id]  = -1e9
         logits[..., sos_id]  = -1e9
@@ -282,16 +285,14 @@ def main():
         _min_len = min(config.min_len, logits.size(1))
         logits[:, :_min_len, eos_id] = -1e9
 
-        temp = getattr(config, "temp", 1.0)
-        if temp and temp != 1.0:
-            logits = logits / max(temp, 1e-6)
+        if config.temp != 1.0:
+            logits = logits / max(config.temp, 1e-6)
 
         N, L_, V = logits.shape
         flat = logits.view(N * L_, V)
-        tk = getattr(config, "top_k", None)
-        if tk and 0 < tk < V:
-            topv, topi = torch.topk(flat, k=tk, dim=-1)
-            masked = torch.full_like(flat, float("-inf"))
+        if 0 < config.top_k < V:
+            topv, topi = torch.topk(flat, k=config.top_k, dim=-1)
+            masked = torch.full_like(flat, -1e9)
             masked.scatter_(1, topi, topv)
             flat = masked
         logits = flat.view(N, L_, V)
