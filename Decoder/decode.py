@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-#import Decoder.config as config
-import config 
+import Decoder.config as config
+#import config 
 import math
 
 @torch.no_grad()
@@ -44,153 +44,13 @@ def greedy_decode(model, protein_feat):
             generated.append(next_token)
 
     return generated
-
-def sample_decode(model, protein_feat, max_len=config.max_len, num_samples=config.num_samples, top_k=config.top_k, temperature=1.0):
-    device = protein_feat.device
-    '''feat = protein_feat.unsqueeze(0)
-    feat = feat.to(device)'''
-    single = False
-    if protein_feat.dim() == 1:
-        feat = protein_feat.unsqueeze(0)
-        single = True
-    elif protein_feat.dim() == 2:
-        feat = protein_feat  
-
-    B = feat.size(0)  
-    sos_id = config.rna_vocab["<sos>"]
-    eos_id = config.rna_vocab["<eos>"]
-
-    tgt = torch.full((B, 1), sos_id, dtype=torch.long, device=device)  # [B, 1]
-    finished = torch.zeros(B, dtype=torch.bool, device=device)
-
-    for _ in range(max_len):
-        # logits: [B, T, V] → 直近トークン
-        logits = model(feat, tgt)[:, -1, :] / temperature  # [B, V]
-        probs = torch.softmax(logits, dim=-1)              # [B, V]
-
-        # top-k
-        if top_k and top_k > 0 and top_k < probs.size(1):
-            topk_probs, topk_idx = probs.topk(top_k, dim=-1)  # [B, k]
-            mask = torch.zeros_like(probs)
-            mask.scatter_(1, topk_idx, topk_probs)
-            probs = mask / (mask.sum(dim=1, keepdim=True) + 1e-12)
-
-        # サンプリング（終了済みには <eos> を流し込む）
-        next_tok = torch.multinomial(probs, 1)  # [B,1]
-        eos_col = torch.full_like(next_tok, eos_id)
-        next_tok = torch.where(finished.unsqueeze(1), eos_col, next_tok)
-
-        tgt = torch.cat([tgt, next_tok], dim=1)   # [B, t+1]
-        finished |= (next_tok.squeeze(1) == eos_id)
-        if finished.all():
-            break
-
-    # <sos> 以降を取り出し、<eos>で打ち切り
-    def strip_one(row: torch.Tensor):
-        ids = row.tolist()[1:]
-        out = []
-        for x in ids:
-            if x == eos_id:
-                break
-            out.append(int(x))
-        return out
-
-    outs = [strip_one(tgt[b]) for b in range(B)]
-    return outs[0] if single else outs
-
-def sample_decode_reinforce(model, protein_feat, max_len=config.max_len, num_samples=1, top_k=config.top_k, temperature=1.0, min_len=config.min_len):
-    if protein_feat.dim() == 1:
-        feat = protein_feat.unsqueeze(0)
-        single = True
-    elif protein_feat.dim() == 2:
-        feat = protein_feat
-        single = False
-    else:
-        raise ValueError(f"protein_feat.dim() must be 1 or 2, got {protein_feat.dim()}")
-
-    B = feat.size(0)
-    dev = feat.device
-
-    sos_id = config.rna_vocab["<sos>"]
-    eos_id = config.rna_vocab["<eos>"]
-    pad_id = config.rna_vocab["<pad>"]  
-
-    # ---- ① 生成（no_grad）----
-    all_seqs = []
-    with torch.no_grad():
-        for b in range(B):
-            feat_b = feat[b:b+1]  # [1, D]
-            seqs_b = []
-            for _ in range(num_samples):
-                seq = []
-                prefix = torch.tensor([[sos_id]], device=dev)  # [1,1]
-                for t in range(max_len):
-                    logits = model(feat_b, prefix)[:, -1, :]  # [1, V]
-                    next_logits = logits.clone()
-
-                    # 禁止トークン
-                    next_logits[:, pad_id] = float("-inf")
-                    next_logits[:, sos_id] = float("-inf")
-
-                    # 最小長と最終ステップの制約
-                    if t == max_len - 1:
-                        next_logits.fill_(float("-inf"))
-                        next_logits[:, eos_id] = 0.0
-                    elif t < min_len:
-                        next_logits[:, eos_id] = float("-inf")
-
-                    # 温度
-                    if temperature is not None and temperature > 0.0 and temperature != 1.0:
-                        next_logits = next_logits / temperature
-
-                    if top_k and top_k > 0 and top_k < next_logits.size(1):
-                        topv, topi = torch.topk(next_logits, k=top_k, dim=-1)
-                        filtered = torch.full_like(next_logits, float("-inf"))
-                        filtered.scatter_(1, topi, topv)
-                        probs = torch.softmax(filtered, dim=-1)
-                    else:
-                        probs = torch.softmax(next_logits, dim=-1)
-
-                    next_tok = torch.multinomial(probs, 1).item()
-                    if next_tok == eos_id:
-                        break
-                    seq.append(next_tok)
-                    prefix = torch.cat([prefix, torch.tensor([[next_tok]], device=dev)], dim=1)
-                seqs_b.append(seq)
-            all_seqs.append(seqs_b)
-
-    # ----  logp 再計算（no_gradのまま／学習側で使わないなら省略可）----
-    logp_rows = []
-    with torch.no_grad():
-        for b in range(B):
-            feat_b = feat[b:b+1]
-            rows_b = []
-            for seq in all_seqs[b]:
-                if len(seq) == 0:
-                    rows_b.append(torch.tensor(0.0, device=dev))
-                    continue
-                inp = torch.tensor([[sos_id] + seq[:-1]], device=dev)  # [1, L]
-                logits = model(feat_b, inp)                             # [1, L, V]
-                log_probs = torch.log_softmax(logits[0], dim=-1)        # [L, V]
-                target = torch.tensor(seq, device=dev).unsqueeze(1)     # [L,1]
-                rows_b.append(log_probs.gather(1, target).sum())
-            logp_rows.append(torch.stack(rows_b))
-
-    if single:
-        return all_seqs[0], logp_rows[0]  # List[List[int]], Tensor[num_samples]
-    else:
-        if num_samples == 1:
-            return [s[0] for s in all_seqs], torch.stack([r[0] for r in logp_rows])  # List[List[int]], Tensor[B]
-        else:
-            return all_seqs, torch.stack(logp_rows)
-
         
 def sample_decode_multi(model,
                   protein_feat,
                   max_len=config.max_len,
                   num_samples=config.num_samples,
                   top_k=config.top_k,
-                  temperature=1.0):
+                  temperature=config.temp):
     
     device = protein_feat.device
 

@@ -1,6 +1,6 @@
 import random
 import torch
-from decode import greedy_decode, sample_decode_multi
+from decode import sample_decode_multi_AR, sample_decode_multi
 import config
 
 def _ids_to_string(ids):
@@ -31,7 +31,7 @@ def show_test_samples(model, dataset, device):
             protein_feat, rna_target, _ = dataset[sample_idx]
 
             # 生成（10塩基までは EOS 禁止）
-            pred_ids = greedy_decode(model,protein_feat)
+            pred_ids = sample_decode_multi_AR(model,protein_feat)
 
             # 整形：表示は A/U/G/C... のみを連結（EOSで打ち切り）
             predicted_seq = _ids_to_string(pred_ids)

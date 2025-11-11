@@ -12,6 +12,7 @@ from Decoder.dataset import custom_collate_fn, RNADataset_NAR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import pandas as pd
+from Decoder.decode import sample_decode_multi
 
 from LucaOneTasks.src.predict_v1 import run as predict_run
 import multiprocessing as mp
@@ -136,15 +137,6 @@ def tokens_to_strings(tokens, ivocab, eos_id, pad_id, sos_id):
         seqs.append("".join(s))
     return seqs
 
-def tokens_to_rna_str(tokens):
-    return "".join(config.rna_ivocab_NAR[int(t)] for t in tokens)
-
-def to_rna_str_list(rna_seq):
-    if len(rna_seq) > 0 and not isinstance(rna_seq[0], (list, tuple, torch.Tensor)):
-        return [tokens_to_rna_str(rna_seq)]
-    return [tokens_to_rna_str(seq) for seq in rna_seq]
-
-
 # ===========================
 #  メイン
 # ===========================
@@ -152,7 +144,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_NAR_100nt_1106.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_NAR_after_reinforce_ppi3d_1105_test.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_NAR_after_reinforce_ppi3d_1111_test.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -170,8 +162,8 @@ def main():
     baseline_alpha  = 0.7
     max_steps       = 10000
     grad_clip_norm  = 0.7
-    MIN_LEN         = 10
     batch_size      = 8
+    entropy_bonus = 0.01
 
     # --- オフターゲット抑制（シンプル） ---
     OFFTARGET_LAMBDA = 1   # R_eff = R - λ * R_off
@@ -250,34 +242,59 @@ def main():
         sos_id  = config.rna_vocab_NAR["<sos>"]
         mask_id = config.rna_vocab_NAR["<MASK>"]
 
-        # ========= 1) 並列forward =========
-        logits = model.module.forward_parallel(protein_feat, out_len=config.max_len)  # [B,L,V]
+        # ========= 2) サンプリング（sample_decode_multiで生成）=========
+        with torch.no_grad():
+            was_training = model.training
+            model.eval()
+            sampled = sample_decode_multi(
+                model,
+                protein_feat,
+                max_len=config.max_len,
+                num_samples=1,
+                top_k=getattr(config, "top_k", None),
+                temperature=getattr(config, "temp", 1.0),
+            )  # List[List[int]]（<eos>以降なし）
+            if was_training:
+                model.train()
 
-        # ========= 2) サンプリング（禁止トークンをban） =========
+        # PAD埋めで [B, L] の tokens を作成
+        B = protein_feat.size(0)
+        L = config.max_len
+        tokens = torch.full((B, L), pad_id, dtype=torch.long, device=device)
+        for i, seq in enumerate(sampled):
+            ln = min(len(seq), L)
+            if ln > 0:
+                tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
+            if ln < L:
+                tokens[i, ln] = eos_id
+
+        # ========= 1) 並列forward（損失用；サンプルと同条件）=========
+        if isinstance(model, nn.DataParallel):
+            logits = model.module.forward_parallel(protein_feat, out_len=L)  # [B, L, V]
+        else:
+            logits = model.forward_parallel(protein_feat, out_len=L)
+
+        # サンプル時と同じ ban / min_len / temperature / top-k を適用
+        logits = logits.clone()
         logits[..., pad_id]  = -1e9
         logits[..., sos_id]  = -1e9
         logits[..., mask_id] = -1e9
-        _min_len = min(MIN_LEN, logits.size(1))
+        _min_len = min(config.min_len, logits.size(1))
         logits[:, :_min_len, eos_id] = -1e9
 
-        probs = logits.softmax(dim=-1)
-        B, L, V = probs.shape
-        tokens = torch.multinomial(probs.reshape(B * L, V), 1).reshape(B, L)
+        temp = getattr(config, "temp", 1.0)
+        if temp and temp != 1.0:
+            logits = logits / max(temp, 1e-6)
 
-        # ========= 2.5) エントロピー正則化（長さ正規化で） =========
-        logp_all = (probs + 1e-8).log()                    # [B,L,V]
-        H_tok = -(probs * logp_all).sum(dim=-1)            # [B,L]
-
-        eos_mask = (tokens == eos_id)
-        csum = eos_mask.int().cumsum(dim=1)
-        before_eos = (csum == 0)
-        first_eos  = eos_mask & (csum == 1)
-        include = (before_eos | first_eos)
-        len_norm = include.float().sum(1).clamp_min(1.0)   # [B]
-
-        H_seq = (H_tok * include.float()).sum(1) / len_norm   # [B]
-        entropy_bonus = H_seq.mean()
-        beta_entropy = 0.01
+        N, L_, V = logits.shape
+        flat = logits.view(N * L_, V)
+        tk = getattr(config, "top_k", None)
+        if tk and 0 < tk < V:
+            topv, topi = torch.topk(flat, k=tk, dim=-1)
+            masked = torch.full_like(flat, float("-inf"))
+            masked.scatter_(1, topi, topv)
+            flat = masked
+        logits = flat.view(N, L_, V)
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab_NAR, eos_id, pad_id, sos_id)
@@ -286,7 +303,7 @@ def main():
             if R.dim() == 0:
                 R = R.expand(tokens.size(0))
 
-        # ========= 3.5) オフターゲット（クロスバッチ最大, 並列スコア）=========
+        # ========= 3.5) オフターゲット（クロスバッチ平均）=========
         B_batch = len(protein_seq_list)
         if B_batch > 1:
             prot_off, rna_off = [], []
@@ -297,60 +314,38 @@ def main():
                     prot_off.append(protein_seq_list[j])
                     rna_off.append(rna_strs[i])
             with torch.no_grad():
-                scores_off = luca_pool.score_pairs(prot_off, rna_off, device=device)  # 長さ B*(B-1)
+                scores_off = luca_pool.score_pairs(prot_off, rna_off, device=device)
             R_off = scores_off.reshape(B_batch, B_batch - 1).mean(dim=1)  # [B]
         else:
             R_off = torch.zeros_like(R)
 
-        # ========= 3.6) 有効報酬（シンプル）=========
+        # ========= 3.6) 有効報酬 =========
         R_eff = R - OFFTARGET_LAMBDA * R_off
 
-        # ========= 4) logp（<eos>以降は無視、<eos>は含める） =========
+        # ========= 4) logp（<eos>まで平均）=========
         logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
 
         # ========= 5) REINFORCE損失 =========
         with torch.no_grad():
             R_mean = R_eff.mean()
             baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
-
         advantage = (R_eff - baseline_mean).detach()
         loss = -(advantage * logp_batch).mean()
 
-        # 既存: エントロピー・ボーナス
-        loss = loss - beta_entropy * entropy_bonus
-
-        # 逆伝播＆更新
+        # 逆伝播＆更新（← 1ステップにつき1回）
         loss.backward()
         clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        # 学習ループ内で、step==0 のとき一度だけ:
-        if step == 0:
-            import random
-            rnd = list(range(len(protein_seq_list)))
-            random.shuffle(rnd)
-
-            # 本来のペア
-            on = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device)
-            # タンパク質だけシャッフル
-            pRnd = luca_pool.score_pairs([protein_seq_list[i] for i in rnd], rna_strs, device=device)
-            # RNAだけシャッフル
-            rRnd = luca_pool.score_pairs(protein_seq_list, [rna_strs[i] for i in rnd], device=device)
-            # 役割スワップ（ワーカーとプールに swap_roles 対応を入れている場合）
-            # swap = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device, swap_roles=True)
-
-            print(f"[sanity] on={float(on.mean()):.3f} pRnd={float(pRnd.mean()):.3f} rRnd={float(rRnd.mean()):.3f}", flush=True)
-
-
-        # ====== ステップごとの要約ログ（loss と報酬） ======
+        # ====== ログ（エントロピー関連は出力しない） ======
         loss_val = float(loss.detach().cpu())
         R_mean_val = float(R.mean().detach().cpu())
         Roff_mean_val = float(R_off.mean().detach().cpu())
         Reff_mean_val = float(R_eff.mean().detach().cpu())
         base_val = float(baseline_mean.detach().cpu())
-        ent_val = float(entropy_bonus.detach().cpu())
         print(
-            f"[step] step={step:06d} loss={loss_val:.5f} R={R_mean_val:.5f} Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f} H={ent_val:.4f}",
+            f"[step] step={step:06d} loss={loss_val:.5f} R={R_mean_val:.5f} "
+            f"Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f}",
             flush=True,
         )
 

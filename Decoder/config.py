@@ -23,6 +23,7 @@ max_len = 102
 min_len = 10
 top_k = 4
 num_samples = 1
+temp = 1.5
 
 # --- デバイス設定 ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
