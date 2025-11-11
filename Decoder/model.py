@@ -1,14 +1,14 @@
 import torch
 import torch.nn as nn
-import Decoder.config as config
-#import config
+#import Decoder.config as config
+import config
 
 def generate_square_subsequent_mask(sz, *, device=None, dtype=None):
     m = torch.full((sz, sz), float('-inf'), device=device, dtype=dtype)
     return torch.triu(m, diagonal=1).masked_fill(torch.eye(sz, device=device, dtype=torch.bool), 0)
 
 class ProteinToRNA(nn.Module):
-    def __init__(self, input_dim, num_layers, vocab_size=7, embed_dim=256, nhead=8, max_len=config.max_len):
+    def __init__(self, input_dim, num_layers, vocab_size=len(config.rna_vocab), embed_dim=256, nhead=8, max_len=config.max_len):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=config.rna_vocab["<pad>"])
         self.pos_encoder = nn.Parameter(torch.randn(max_len, embed_dim))
