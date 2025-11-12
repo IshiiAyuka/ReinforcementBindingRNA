@@ -144,14 +144,11 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_NAR_100nt_1106.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_NAR_after_reinforce_ppi3d_1111_test.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_NAR_after_reinforce_ppi3d_1112_test.pt"
 
     # --- GPU割り当て ---
-    device_ids = [0]
-    all_gpus = list(range(torch.cuda.device_count()))
-    reward_gpu_ids = [g for g in all_gpus if g not in device_ids]
-    if len(reward_gpu_ids) == 0:
-        reward_gpu_ids = [all_gpus[-1]] if len(all_gpus) > 0 else []
+    device_ids = [0,1]
+    reward_gpu_ids = [2,3]
 
     device = f'cuda:{device_ids[0]}' if torch.cuda.is_available() else 'cpu'
     if torch.cuda.is_available():
@@ -220,7 +217,7 @@ def main():
         step = "716380",
         time_str = "20240404105148",
         topk = None,
-        gpu_id = reward_gpu_ids[0] if len(reward_gpu_ids) > 0 else 0,  # 初期値（各ワーカーで上書き）
+        gpu_id = reward_gpu_ids[0], 
         emb_dir = None,
         matrix_embedding_exists = False
     )
@@ -289,13 +286,13 @@ def main():
             logits = logits / max(config.temp, 1e-6)
 
         N, L_, V = logits.shape
-        flat = logits.view(N * L_, V)
+        '''flat = logits.view(N * L_, V)
         if 0 < config.top_k < V:
             topv, topi = torch.topk(flat, k=config.top_k, dim=-1)
             masked = torch.full_like(flat, -1e9)
             masked.scatter_(1, topi, topv)
             flat = masked
-        logits = flat.view(N, L_, V)
+        logits = flat.view(N, L_, V)'''
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab_NAR, eos_id, pad_id, sos_id)
@@ -331,6 +328,8 @@ def main():
             R_mean = R_eff.mean()
             baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
         advantage = (R_eff - baseline_mean).detach()
+        #追加
+        advantage = torch.exp(advantage)
         loss = -(advantage * logp_batch).mean()
 
         # 逆伝播＆更新（← 1ステップにつき1回）
@@ -346,7 +345,8 @@ def main():
         base_val = float(baseline_mean.detach().cpu())
         print(
             f"[step] step={step:06d} loss={loss_val:.5f} R={R_mean_val:.5f} "
-            f"Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f}",
+            f"Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f} ",
+            f"RNAs={'|'.join(rna_strs)}",
             flush=True,
         )
 

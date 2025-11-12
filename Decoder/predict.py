@@ -33,6 +33,9 @@ def show_test_samples(model, dataset, device):
             # 生成（10塩基までは EOS 禁止）
             pred_ids = sample_decode_multi_AR(model,protein_feat)
 
+            if isinstance(pred_ids[0], (list, tuple)):
+                pred_ids = pred_ids[0]
+
             # 整形：表示は A/U/G/C... のみを連結（EOSで打ち切り）
             predicted_seq = _ids_to_string(pred_ids)
 

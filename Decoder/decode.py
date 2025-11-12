@@ -139,9 +139,10 @@ def sample_decode_multi_AR(model,
                   max_len=config.max_len,
                   num_samples=config.num_samples,
                   top_k=config.top_k,
-                  temperature=1.0):
+                  temperature=config.temp):
     
-    device = protein_feat.device
+    device = next(model.parameters()).device
+
     if protein_feat.dim() == 1:
         feat = protein_feat.unsqueeze(0)
         single = True
@@ -150,11 +151,12 @@ def sample_decode_multi_AR(model,
     else:
         raise ValueError(f"protein_feat.dim() must be 1 or 2, got {protein_feat.dim()}")
 
+    feat = feat.to(device, non_blocking=True)
+
     B = feat.size(0)
     out_all = [[] for _ in range(B)]
     seen_all = [set() for _ in range(B)] 
 
-    # ---- 定数（NAR版からNAR_NAR参照を外し、rna_vocabに統一）----
     PAD = config.rna_vocab["<pad>"]
     SOS = config.rna_vocab["<sos>"]
     EOS = config.rna_vocab["<eos>"]
@@ -165,15 +167,13 @@ def sample_decode_multi_AR(model,
     rounds = math.ceil(target / S_step)
 
     for r in range(rounds):
-        # このラウンドで各タンパク質から並列生成する本数（S）
         remaining = target - (rounds - 1) * S_step if r == rounds - 1 else S_step
-        S = max(1, remaining)  # ← これが “S” です
+        S = max(1, remaining)
 
-        # [B*S, D]
-        feat_rep = feat.repeat_interleave(S, dim=0).to(device, non_blocking=True)
+        # [B*S, D] 
+        feat_rep = feat.repeat_interleave(S, dim=0)
         N = feat_rep.size(0)
 
-        # <sos> 初期化
         toks = torch.full((N, 1), SOS, dtype=torch.long, device=device)
         finished = torch.zeros(N, dtype=torch.bool, device=device)
 
@@ -185,7 +185,7 @@ def sample_decode_multi_AR(model,
             next_logits[:, PAD] = float("-inf")
             next_logits[:, SOS] = float("-inf")
 
-            # 最小長未満は <eos> 禁止（短すぎ対策）
+            # 最小長未満は <eos> 禁止
             cur_len_no_sos = toks.size(1) - 1
             if cur_len_no_sos < config.min_len:
                 next_logits[~finished, EOS] = float("-inf")
@@ -207,7 +207,6 @@ def sample_decode_multi_AR(model,
             # 終了済み行は以後EOS固定
             if finished.any():
                 next_ids = torch.where(finished, torch.full_like(next_ids, EOS), next_ids)
-
             toks = torch.cat([toks, next_ids.unsqueeze(1)], dim=1)
             finished |= (next_ids == EOS)
             if finished.all():
@@ -216,7 +215,7 @@ def sample_decode_multi_AR(model,
         # BごとにS本へ分割し、<eos>で切り、<pad>/<sos>除外（重複OK）
         for i in range(B):
             if len(out_all[i]) >= target:
-                continue  # 既に満たしていれば追加しない
+                continue
 
             block = toks[i*S:(i+1)*S]  # [S, L]
             for row in block:
@@ -229,17 +228,17 @@ def sample_decode_multi_AR(model,
                     seq.append(tok)
 
                 if len(seq) < config.min_len:
-                    continue  # 短すぎは除外（重複は許可）
+                    continue
 
                 out_all[i].append(seq)
 
-    # ── ここで“絶対”本数保証：不足分は既存配列を繰り返して充当（重複許可前提）──
+    # 本数保証
     for i in range(B):
         n = len(out_all[i])
         if n < target:
             if n == 0:
-                print(f"[WARN] 生成配列が0件: idx={i}. 空のリストを繰り返して埋めるのは避けました。"
-                      " min_len と max_len / top_k / temperature を確認してください。")
+                print(f"[WARN] 生成配列が0件: idx={i}. "
+                      "min_len と max_len / top_k / temperature を確認してください。")
             else:
                 k = 0
                 while len(out_all[i]) < target:
