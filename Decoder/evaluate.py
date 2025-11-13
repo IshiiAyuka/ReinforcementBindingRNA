@@ -21,8 +21,8 @@ def evaluate_model(model, loader, device):
                 predicted_ids = sample_decode_multi_AR(model, protein_feat)     
                 target_ids = rna_tgt_batch[i].view(-1).tolist()[1:-1]
 
-                predicted_seq = "".join([config.rna_ivocab_NAR[i] for i in predicted_ids])
-                target_seq = "".join([config.rna_ivocab_NAR[i] for i in target_ids])
+                predicted_seq = "".join([config.rna_ivocab[i] for i in predicted_ids])
+                target_seq = "".join([config.rna_ivocab[i] for i in target_ids])
 
                 if not predicted_ids or not target_ids:
                     continue
@@ -49,9 +49,6 @@ def evaluate_model_NAR(model, loader, device):
     recalls = []
     global_align_scores = []
     local_align_scores = []
-
-    # NAR用 ivocab があれば優先
-    ivocab = getattr(config, "rna_ivocab_NAR", getattr(config, "rna_ivocab"))
 
     model.eval()
     with torch.no_grad():

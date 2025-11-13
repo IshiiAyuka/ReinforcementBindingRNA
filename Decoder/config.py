@@ -16,7 +16,7 @@ rna_ivocab_NAR = {v: k for k, v in rna_vocab_NAR.items()}
 # --- モデル・学習設定 ---
 input_dim = 640
 batch_size = 16
-epochs = 30
+epochs = 500
 lr = 0.0001
 num_layers = 5
 max_len = 102

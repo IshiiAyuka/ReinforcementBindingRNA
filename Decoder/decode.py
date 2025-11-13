@@ -155,7 +155,6 @@ def sample_decode_multi_AR(model,
 
     B = feat.size(0)
     out_all = [[] for _ in range(B)]
-    seen_all = [set() for _ in range(B)] 
 
     PAD = config.rna_vocab["<pad>"]
     SOS = config.rna_vocab["<sos>"]
@@ -246,5 +245,10 @@ def sample_decode_multi_AR(model,
                     k += 1
 
     if target == 1:
-        return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
+        if B == 1:
+            # 単一タンパク質 + 1サンプル → list[int] を返す
+            return out_all[0][0] if len(out_all[0]) > 0 else []
+        else:
+            # バッチ入力のときは従来どおり、各タンパク質ごとに1本ずつ返す
+            return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
     return out_all

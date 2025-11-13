@@ -328,8 +328,8 @@ def main():
             R_mean = R_eff.mean()
             baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
         advantage = (R_eff - baseline_mean).detach()
-        #追加
-        advantage = torch.exp(advantage)
+        advantage = (advantage - advantage.mean()) / (advantage.std().clamp_min(1e-6))
+   
         loss = -(advantage * logp_batch).mean()
 
         # 逆伝播＆更新（← 1ステップにつき1回）
