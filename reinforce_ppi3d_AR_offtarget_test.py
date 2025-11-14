@@ -144,7 +144,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_after_reinforce_ppi3d_1111_test.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1114.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -290,13 +290,6 @@ def main():
             logits = logits / max(config.temp, 1e-6)
 
         N, L_, V = logits.shape
-        flat = logits.view(N * L_, V)
-        if 0 < config.top_k < V:
-            topv, topi = torch.topk(flat, k=config.top_k, dim=-1)
-            masked = torch.full_like(flat, -1e9)
-            masked.scatter_(1, topi, topv)
-            flat = masked
-        logits = flat.view(N, L_, V)
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
@@ -327,12 +320,32 @@ def main():
         # ========= 4) logp（<eos>まで平均）=========
         logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
 
+
+        # ========= 4.5) エントロピー（<eos>まで平均）=========
+        logp_all = logits.log_softmax(-1)          # [B, L, V]
+        probs = logp_all.exp()                     # [B, L, V]
+        tok_entropy = -(probs * logp_all).sum(dim=-1)  # [B, L]  各トークンのエントロピー
+
+        not_pad  = (tokens != pad_id)
+        eos_mask = (tokens == eos_id)
+        csum     = eos_mask.int().cumsum(dim=1)
+        before_eos = (csum == 0)
+        first_eos  = eos_mask & (csum == 1)
+        include = (before_eos | first_eos) & not_pad  # [B, L]
+
+        include_f = include.float()
+        den_ent = include_f.sum(dim=-1).clamp_min(1.0)          # [B]
+        entropy_batch = (tok_entropy * include_f).sum(dim=-1) / den_ent  # [B]
+        entropy_mean = entropy_batch.mean()     
+
         # ========= 5) REINFORCE損失 =========
         with torch.no_grad():
             R_mean = R_eff.mean()
             baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
         advantage = (R_eff - baseline_mean).detach()
         loss = -(advantage * logp_batch).mean()
+
+        loss = loss - entropy_bonus*entropy_mean
 
         # 逆伝播＆更新（← 1ステップにつき1回）
         loss.backward()
@@ -348,6 +361,7 @@ def main():
         print(
             f"[step] step={step:06d} loss={loss_val:.5f} R={R_mean_val:.5f} "
             f"Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f}",
+            f"RNAs={'|'.join(rna_strs)}",
             flush=True,
         )
 

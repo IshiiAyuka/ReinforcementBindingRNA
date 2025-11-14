@@ -320,6 +320,20 @@ def main():
         # ========= 3.6) 有効報酬 =========
         R_eff = R - OFFTARGET_LAMBDA * R_off
 
+        '''# =========  エントロピー正則化（長さ正規化で） =========
+        logp_all = (probs + 1e-8).log()                    # [B,L,V]
+        H_tok = -(probs * logp_all).sum(dim=-1)            # [B,L]
+
+        eos_mask = (tokens == eos_id)
+        csum = eos_mask.int().cumsum(dim=1)
+        before_eos = (csum == 0)
+        first_eos  = eos_mask & (csum == 1)
+        include = (before_eos | first_eos)
+        len_norm = include.float().sum(1).clamp_min(1.0)   # [B]
+
+        H_seq = (H_tok * include.float()).sum(1) / len_norm   # [B]
+        entropy_bonus = H_seq.mean()'''
+
         # ========= 4) logp（<eos>まで平均）=========
         logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
 
