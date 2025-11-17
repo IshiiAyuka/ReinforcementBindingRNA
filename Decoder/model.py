@@ -24,19 +24,13 @@ class ProteinToRNA(nn.Module):
         B, L = tgt_seq.size(0), tgt_seq.size(1)
         pad_id = self.embedding.padding_idx
 
-        # 追加
-        sos_id = config.rna_vocab["<sos>"]
-        sos = torch.full((B, 1), sos_id, device=tgt_seq.device, dtype=tgt_seq.dtype)
-        tgt_in = torch.cat([sos, tgt_seq[:, :-1]], dim=1)
-
-        # --- RNA側埋め込み ---
-        L_in = tgt_in.size(1)                                             
-        pos_enc = self.pos_encoder[:L_in].unsqueeze(0)                  
-        tgt_emb = self.embedding(tgt_in) + pos_enc
+        # --- RNA側埋め込み ---                                            
+        pos_enc = self.pos_encoder[:L].unsqueeze(0)                  
+        tgt_emb = self.embedding(tgt_seq) + pos_enc
         tgt_mask = generate_square_subsequent_mask(                      
-            L_in, device=tgt_seq.device, dtype=tgt_emb.dtype
+            L, device=tgt_seq.device, dtype=tgt_emb.dtype
         )
-        tgt_key_padding_mask = (tgt_in == pad_id)            
+        tgt_key_padding_mask = (tgt_seq == pad_id)            
 
         # --- タンパク質側メモリ ---
         if protein_feat.dim() == 2:

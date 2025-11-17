@@ -1,5 +1,4 @@
 import random
-import random as pyrand
 from collections import OrderedDict, defaultdict
 
 import torch
@@ -144,7 +143,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1114.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1116.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -159,11 +158,11 @@ def main():
 
     # --- ハイパーパラメータ ---
     baseline_mean   = torch.tensor(0.0, device=device)  # 報酬の移動平均(=ベースライン)
-    baseline_alpha  = 0.7
+    baseline_alpha  = 0.9
     max_steps       = 10000
     grad_clip_norm  = 0.7
     batch_size      = 8
-    entropy_bonus = 0.01
+    entropy_bonus = 0.05
 
     # --- オフターゲット抑制（シンプル） ---
     OFFTARGET_LAMBDA = 1   # R_eff = R - λ * R_off
@@ -176,8 +175,8 @@ def main():
         cluster_dict[row["cluster_id"]].append(row["subunit_1"])
 
     clusters = list(cluster_dict.values())
-    pyrand.seed(42)
-    pyrand.shuffle(clusters)
+    random.seed(42)
+    random.shuffle(clusters)
     split_idx = int(0.95 * len(clusters))
     train_ids = {sid for cluster in clusters[:split_idx] for sid in cluster}
     dataset_train = RNADataset_AR(protein_feat_path, csv_path, allowed_ids=train_ids)
@@ -247,19 +246,18 @@ def main():
         sos_id  = config.rna_vocab["<sos>"]
 
         # ========= サンプリング（sample_decode_multiで生成）=========
-        with torch.no_grad():
-            was_training = model.training
-            model.eval()
-            sampled = sample_decode_multi_AR(
-                model,
-                protein_feat,
-                max_len=config.max_len,
-                num_samples=1,
-                top_k=config.top_k,
-                temperature=config.temp,
-            )  # List[List[int]]（<eos>以降なし）
-            if was_training:
-                model.train()
+        was_training = model.training
+        model.eval()
+        sampled = sample_decode_multi_AR(
+            model,
+            protein_feat,
+            max_len=config.max_len,
+            num_samples=1,
+            top_k=config.top_k,
+            temperature=config.temp,
+        )  # List[List[int]]（<eos>以降なし）
+        if was_training:
+            model.train()
 
         # PAD埋めで [B, L] の tokens を作成
         B = protein_feat.size(0)
@@ -271,11 +269,17 @@ def main():
                 tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
             if ln < L and ln >= config.min_len:
                 tokens[i, ln] = eos_id
+        
+        # ========= logits 用の decoder 入力（先頭に <sos> を付ける）=========
+        sos_id = config.rna_vocab["<sos>"]
+        sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)   # [B, 1]
+        # [B, L] = [B, 1] + [B, L-1]
+        tgt_in = torch.cat([sos_col, tokens[:, :-1]], dim=1) 
 
         # ========= ログ確率用 logits（AR: teacher forcing で forward）=========
         was_training = model.training
         model.eval()
-        logits = model(protein_feat, tokens)  # [B, L, V]（ProteinToRNA.forward が内部で <sos> 付与）
+        logits = model(protein_feat, tgt_in)  # [B, L, V]（ProteinToRNA.forward が内部で <sos> 付与）
         if was_training:
             model.train()
 
@@ -289,7 +293,12 @@ def main():
         if config.temp != 1.0:
             logits = logits / max(config.temp, 1e-6)
 
-        N, L_, V = logits.shape
+        V = logits.size(-1)
+        top_k = getattr(config, "top_k", None)
+        if top_k and 0 < top_k < V:
+            topv, topi = torch.topk(logits, k=top_k, dim=-1)
+            masked = torch.full_like(logits, float("-inf"))
+            logits = masked.scatter(-1, topi, topv)
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)

@@ -145,7 +145,6 @@ def sample_decode_multi_AR(model,
 
     if protein_feat.dim() == 1:
         feat = protein_feat.unsqueeze(0)
-        single = True
     elif protein_feat.dim() == 2:
         feat = protein_feat
     else:
