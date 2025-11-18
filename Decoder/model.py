@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import Decoder.config as config
-#import config
+#import Decoder.config as config
+import config
 
 def generate_square_subsequent_mask(sz, *, device=None, dtype=None):
     m = torch.full((sz, sz), float('-inf'), device=device, dtype=dtype)

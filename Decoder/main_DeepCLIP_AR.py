@@ -9,10 +9,10 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from collections import OrderedDict
 
-CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_after_reinforce_ppi3d_25step.pt"
+CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1117.pt"
 protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_RNAcompete.pt"
 csv_path = "/home/slab/ishiiayuka/M2/RNAcompete.csv"
-output_path = "/home/slab/ishiiayuka/M2/generated_rna_RNCMPT_t30_150M_AR_1013.csv"
+output_path = "/home/slab/ishiiayuka/M2/generated_rna_RNCMPT_t30_150M_AR_1118.csv"
 num_samples = 100
 
 # ---- state_dict ロード（module. 剥がし + drop_prefixes 対応、簡潔版）----
@@ -44,17 +44,13 @@ model.eval()
 print("モデルの重みを読み込みました。")
 
 # ---- トークン列 → RNA 文字列（<eos>打切り、<pad>/<sos>/<MASK>除外）----
-PAD  = config.rna_vocab_NAR["<pad>"]
-SOS  = config.rna_vocab_NAR["<sos>"]
-EOS  = config.rna_vocab_NAR["<eos>"]
-
 def ids_to_clean_rna(seq_ids):
     out = []
     for t in seq_ids:  # list / tensor どちらでもOK
         tid = int(t)
-        if tid == EOS:
+        if tid == config.rna_vocab["<eos>"]:
             break
-        if tid in (PAD, SOS):
+        if tid in (config.rna_vocab["<pad>"], config.rna_vocab["<sos>"]):
             continue
         tok = config.rna_ivocab.get(tid)
         if tok in ("A", "U", "C", "G"):

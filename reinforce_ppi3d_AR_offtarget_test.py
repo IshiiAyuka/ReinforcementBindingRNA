@@ -143,7 +143,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1116.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1117.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -158,7 +158,7 @@ def main():
 
     # --- ハイパーパラメータ ---
     baseline_mean   = torch.tensor(0.0, device=device)  # 報酬の移動平均(=ベースライン)
-    baseline_alpha  = 0.9
+    baseline_alpha  = 0.99
     max_steps       = 10000
     grad_clip_norm  = 0.7
     batch_size      = 8
@@ -273,7 +273,6 @@ def main():
         # ========= logits 用の decoder 入力（先頭に <sos> を付ける）=========
         sos_id = config.rna_vocab["<sos>"]
         sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)   # [B, 1]
-        # [B, L] = [B, 1] + [B, L-1]
         tgt_in = torch.cat([sos_col, tokens[:, :-1]], dim=1) 
 
         # ========= ログ確率用 logits（AR: teacher forcing で forward）=========
@@ -292,13 +291,6 @@ def main():
 
         if config.temp != 1.0:
             logits = logits / max(config.temp, 1e-6)
-
-        V = logits.size(-1)
-        top_k = getattr(config, "top_k", None)
-        if top_k and 0 < top_k < V:
-            topv, topi = torch.topk(logits, k=top_k, dim=-1)
-            masked = torch.full_like(logits, float("-inf"))
-            logits = masked.scatter(-1, topi, topv)
 
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)

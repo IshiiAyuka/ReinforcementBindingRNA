@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import Decoder.config as config
-#import config 
+#import Decoder.config as config
+import config 
 import math
 
 @torch.no_grad()
@@ -44,6 +44,64 @@ def greedy_decode(model, protein_feat):
             generated.append(next_token)
 
     return generated
+
+def _debug_check_decoding(logits, next_logits, probs, t: int):
+    """
+    ARデコード中に NaN / Inf / 変な確率が出ていないかをまとめてチェックする。
+    何かおかしければ RuntimeError を投げて詳細を print する。
+    """
+    # 1) モデル出力 logits のチェック
+    has_nan_logit = torch.isnan(logits).any().item()
+    has_inf_logit = torch.isinf(logits).any().item()
+
+    if has_nan_logit or has_inf_logit:
+        print("===== [DEBUG] logits has NaN/Inf in sample_decode_multi_AR =====", flush=True)
+        print(f"  t = {t}, logits.shape = {logits.shape}", flush=True)
+        print(f"  logits.min = {logits.min().item():.4e}, logits.max = {logits.max().item():.4e}", flush=True)
+        bad_mask = torch.isnan(logits) | torch.isinf(logits)
+        bad_rows = bad_mask.any(dim=-1).any(dim=-1).nonzero(as_tuple=True)[0]
+        print(f"  bad row indices = {bad_rows.tolist()}", flush=True)
+        i = bad_rows[0].item()
+        print("  logits[bad_row][:3, :5] =",
+              logits[i, :3, :5].detach().cpu().tolist(), flush=True)
+        raise RuntimeError("DEBUG: logits NaN/Inf just after model()")
+
+    # 2) next_logits の有限値チェック（マスク・top_k 後）
+    finite_mask = torch.isfinite(next_logits)
+    no_finite = ~finite_mask.any(dim=-1)   # その行に有限値が1つもない
+    if no_finite.any():
+        bad_idx = no_finite.nonzero(as_tuple=True)[0]
+        print("===== [DEBUG] next_logits row has no finite value =====", flush=True)
+        print(f"  t = {t}, indices = {bad_idx.tolist()}", flush=True)
+        j = bad_idx[0].item()
+        print("  next_logits[bad_row][:10] =",
+              next_logits[j, :10].detach().cpu().tolist(), flush=True)
+        print(f"  next_logits.min = {next_logits.min().item():.4e}, "
+              f"max = {next_logits.max().item():.4e}", flush=True)
+        raise RuntimeError("DEBUG: all -inf/NaN in next_logits row before softmax")
+
+    # 3) probs のチェック（softmax 後）
+    has_nan_prob = torch.isnan(probs).any().item()
+    has_inf_prob = torch.isinf(probs).any().item()
+    has_neg_prob = (probs < 0).any().item()
+    row_sum = probs.sum(dim=-1)  # [N]
+    bad_sum = (row_sum <= 0) | torch.isnan(row_sum) | torch.isinf(row_sum)
+
+    if has_nan_prob or has_inf_prob or has_neg_prob or bad_sum.any().item():
+        print("===== [DEBUG] probs invalid just before multinomial =====", flush=True)
+        print(f"  t = {t}, probs.shape = {probs.shape}", flush=True)
+        print(f"  probs.min = {probs.min().item():.4e}, probs.max = {probs.max().item():.4e}", flush=True)
+        print(f"  has_nan_prob = {has_nan_prob}, has_inf_prob = {has_inf_prob}, has_neg_prob = {has_neg_prob}", flush=True)
+        bad_rows = bad_sum.nonzero(as_tuple=True)[0].tolist()
+        print(f"  row_sum<=0 or NaN/Inf rows = {bad_rows}", flush=True)
+        if bad_rows:
+            k = bad_rows[0]
+            print("  probs[bad_row][:10] =",
+                  probs[k, :10].detach().cpu().tolist(), flush=True)
+            print("  row_sum[bad_row] =", row_sum[k].item(), flush=True)
+        raise RuntimeError("DEBUG: invalid probs before torch.multinomial")
+
+
         
 def sample_decode_multi(model,
                   protein_feat,
@@ -175,10 +233,12 @@ def sample_decode_multi_AR(model,
         toks = torch.full((N, 1), SOS, dtype=torch.long, device=device)
         finished = torch.zeros(N, dtype=torch.bool, device=device)
 
-        for _ in range(max_len - 1):
+        for t in range(max_len - 1):
+            # ① モデルから logits を取得
             logits = model(feat_rep, toks)          # [N, L, V]
-            next_logits = logits[:, -1, :].clone()
+            next_logits = logits[:, -1, :].clone()  # [N, V]
 
+            # ② マスク処理
             # 生成禁止: <pad>, <sos>
             next_logits[:, PAD] = float("-inf")
             next_logits[:, SOS] = float("-inf")
@@ -199,7 +259,13 @@ def sample_decode_multi_AR(model,
                 masked = torch.full_like(next_logits, float("-inf"))
                 next_logits = masked.scatter(1, topi, topv)
 
+            # ③ softmax
             probs = torch.softmax(next_logits, dim=-1)
+
+            # ④ ここでまとめてチェック
+            #_debug_check_decoding(logits, next_logits, probs, t)
+
+            # ⑤ サンプリング
             next_ids = torch.multinomial(probs, 1).squeeze(1)
 
             # 終了済み行は以後EOS固定
