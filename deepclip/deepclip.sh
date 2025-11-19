@@ -4,14 +4,10 @@ conda activate deepclip
 
 cd /home/slab/ishiiayuka/M2/deepclip
 
-for filepath in data/*.csv; do
-  ID=$(basename "$filepath" .csv)
-  echo "Processing ID=${ID} (file: $filepath)"
-
-  nohup python Mydeepclip_multiple.py \
-    RNCMPT_sequences.csv \
-    "$filepath" \
-    models/RNCMPT \
-    > result/${ID}_output.log \
-    2> result/${ID}_error.log & 
-done
+nohup python -u Mydeepclip_multiple.py \
+    -u RNAcompete.csv \
+    -g /home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_RNCMPT_t30_150M_AR_1118.csv \
+    -w models/RNCMPT \
+    --thr 0.75 \
+    > output_1118.log \
+    2> error_1118.log & 

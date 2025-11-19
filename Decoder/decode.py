@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-#import Decoder.config as config
-import config 
+import Decoder.config as config
+#import config 
 import math
 
 @torch.no_grad()

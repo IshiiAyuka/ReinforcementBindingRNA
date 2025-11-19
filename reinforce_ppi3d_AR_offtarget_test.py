@@ -143,7 +143,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1117.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1118_2.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -158,11 +158,11 @@ def main():
 
     # --- ハイパーパラメータ ---
     baseline_mean   = torch.tensor(0.0, device=device)  # 報酬の移動平均(=ベースライン)
-    baseline_alpha  = 0.99
+    baseline_alpha  = 0.5
     max_steps       = 10000
     grad_clip_norm  = 0.7
     batch_size      = 8
-    entropy_bonus = 0.05
+    entropy_bonus = 0.01
 
     # --- オフターゲット抑制（シンプル） ---
     OFFTARGET_LAMBDA = 1   # R_eff = R - λ * R_off
