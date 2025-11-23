@@ -13,48 +13,27 @@ class ProteinToRNA(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=config.rna_vocab["<pad>"])
         self.pos_encoder = nn.Parameter(torch.randn(max_len, embed_dim))
         self.input_proj = nn.Linear(input_dim, embed_dim)
-
         self.mem_pos = nn.Parameter(torch.randn(max_len, embed_dim))
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=nhead, batch_first=False)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=nhead, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
         self.fc_out = nn.Linear(embed_dim, vocab_size)
 
     def forward(self, protein_feat, tgt_seq):
-        B, L = tgt_seq.size(0), tgt_seq.size(1)
+        B, L = tgt_seq.shape
         pad_id = self.embedding.padding_idx
-
-        # --- RNA側埋め込み ---                                            
+                                         
         pos_enc = self.pos_encoder[:L].unsqueeze(0)                  
         tgt_emb = self.embedding(tgt_seq) + pos_enc
-        tgt_mask = generate_square_subsequent_mask(                      
-            L, device=tgt_seq.device, dtype=tgt_emb.dtype
-        )
-        tgt_key_padding_mask = (tgt_seq == pad_id)            
+        tgt_mask = generate_square_subsequent_mask(L, device=tgt_seq.device, dtype=tgt_emb.dtype)
+        tgt_key_padding_mask = (tgt_seq == pad_id)   
 
-        # --- タンパク質側メモリ ---
-        if protein_feat.dim() == 2:
-            # [B, D] → [1, B, E]（グローバルベクトル）
-            memory = self.input_proj(protein_feat).unsqueeze(0)          # [1, B, E]
-            memory = memory + self.mem_pos[:1].unsqueeze(1)              # 位置0の埋め込みを加算
-        elif protein_feat.dim() == 3:
-            # [B, S, D] → [S, B, E]（配列として活かす）
-            B_, S, D = protein_feat.size()
-            assert B_ == B, "batch mismatch"
-            mem = self.input_proj(protein_feat)                           # [B, S, E]
-            mem = mem.transpose(0, 1)                                     # [S, B, E]
-            mem = mem + self.mem_pos[:S].unsqueeze(1)                     # [S, B, E]
-            memory = mem
-        else:
-            raise ValueError(f"protein_feat must be [B, D] or [B, S, D], got {protein_feat.shape}")
+        B, S, D = protein_feat.shape
+        memory = self.input_proj(protein_feat)
+        memory = memory + self.mem_pos[:S].unsqueeze(0)         
 
-        out = self.decoder(
-            tgt=tgt_emb.transpose(0, 1),     # [L, B, E]
-            memory=memory,                   # [S or 1, B, E]
-            tgt_mask=tgt_mask,
-            tgt_key_padding_mask=tgt_key_padding_mask
-        )
-        return self.fc_out(out.transpose(0, 1))
+        out = self.decoder(tgt=tgt_emb, memory=memory, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask)
+        return self.fc_out(out)
 
 class ProteinToRNA_NAR(nn.Module):
     def __init__(self, input_dim, num_layers,
