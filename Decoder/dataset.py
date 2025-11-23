@@ -48,7 +48,7 @@ class RNADataset_AR(Dataset):
         protein_feat, tgt, prot_seq = self.data[idx]
         return protein_feat, tgt, prot_seq
 
-def custom_collate_fn(batch):
+def custom_collate_fn_AR(batch):
     pad_id = config.rna_vocab["<pad>"]
 
     protein_feats, tgt_seqs, prot_seqs = zip(*batch) 

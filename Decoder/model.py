@@ -13,7 +13,7 @@ class ProteinToRNA(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=config.rna_vocab["<pad>"])
         self.pos_encoder = nn.Parameter(torch.randn(max_len, embed_dim))
         self.input_proj = nn.Linear(input_dim, embed_dim)
-        self.mem_pos = nn.Parameter(torch.randn(max_len, embed_dim))
+        self.mem_pos = nn.Parameter(torch.randn(config.prot_max_len, embed_dim))
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=nhead, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)

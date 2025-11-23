@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import RNADataset_NAR,RNADataset_AR, custom_collate_fn
+from dataset import RNADataset_NAR,RNADataset_AR, custom_collate_fn_AR
 from model import ProteinToRNA_NAR, ProteinToRNA
 from train import train_model_NAR,train_model_AR
 from evaluate import evaluate_model_NAR,evaluate_model
@@ -36,8 +36,8 @@ if __name__ == "__main__":
     dataset_train = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=train_ids)
     dataset_test = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
 
-    train_loader = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collate_fn)
-    test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn)
+    train_loader = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collate_fn_AR)
+    test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn_AR)
 
     print(f"Trainデータ数: {len(dataset_train)}")
     print(f"Testデータ数: {len(dataset_test)}")
