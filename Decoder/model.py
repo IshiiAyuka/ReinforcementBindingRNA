@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import Decoder.config as config
-#import config
+#import Decoder.config as config
+import config
 
 def generate_square_subsequent_mask(sz, *, device=None, dtype=None):
     m = torch.full((sz, sz), float('-inf'), device=device, dtype=dtype)
@@ -28,7 +28,7 @@ class ProteinToRNA(nn.Module):
         tgt_mask = generate_square_subsequent_mask(L, device=tgt_seq.device, dtype=tgt_emb.dtype)
         tgt_key_padding_mask = (tgt_seq == pad_id)   
 
-        B, S, D = protein_feat.shape
+        B2, S, D = protein_feat.shape
         memory = self.input_proj(protein_feat)
         memory = memory + self.mem_pos[:S].unsqueeze(0)         
 

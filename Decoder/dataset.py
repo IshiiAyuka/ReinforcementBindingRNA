@@ -2,29 +2,26 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
-import Decoder.config as config
-#import config 
+#import Decoder.config as config
+import config 
 
 class RNADataset_AR(Dataset):
     def __init__(self, protein_feat_file, csv_path, allowed_ids=None):
-        full_feats_dict = torch.load(protein_feat_file)  # 例: {"2zni_A": tensor(...), ...}
+        full_feats_dict = torch.load(protein_feat_file)  
         self.data = []
-        self.ids = []
 
         df = pd.read_csv(csv_path, low_memory=False)
 
         for _, row in df.iterrows():
             chain_id = str(row["subunit_1"]).strip()
-            uid = f"{chain_id}"
+            uid = chain_id
             rna_seq = str(row["s2_sequence"]).strip().upper()
             prot_seq = str(row["s1_sequence"]).strip().upper() 
 
-            # フィルタ
             if allowed_ids is not None and uid not in allowed_ids:
                 continue
             if rna_seq == "NAN":
                 continue
-            # <sos>, <eos> を含めて max_len に収まるように
             if not (config.min_len <= len(rna_seq) <= config.max_len - 2):
                 continue
             if uid not in full_feats_dict:
@@ -34,14 +31,13 @@ class RNADataset_AR(Dataset):
             try:
                 tok_body = [vocab[c] for c in rna_seq]  # A/U/C/G のみ想定
             except KeyError:
-                # 予期しない文字（Nなど）が含まれる行はスキップ
                 continue
 
             tgt = torch.tensor(
                 [vocab["<sos>"]] + tok_body + [vocab["<eos>"]],
                 dtype=torch.long
             )
-            protein_feat = torch.as_tensor(full_feats_dict[uid])
+            protein_feat = torch.as_tensor(full_feats_dict[uid]).float()
 
             self.data.append((protein_feat, tgt, prot_seq))
 
@@ -52,24 +48,28 @@ class RNADataset_AR(Dataset):
         protein_feat, tgt, prot_seq = self.data[idx]
         return protein_feat, tgt, prot_seq
 
-
 def custom_collate_fn(batch):
     pad_id = config.rna_vocab["<pad>"]
 
-    protein_feats, tgt_seqs, prot_seqs = zip(*batch)  # [(D,), (T,), str] × B
+    protein_feats, tgt_seqs, prot_seqs = zip(*batch) 
 
-    # [B, D]
-    protein_feats = torch.stack([torch.as_tensor(x) for x in protein_feats], dim=0).float()
+    B = len(protein_feats)
+    D = protein_feats[0].size(1)
+    S_max = max(feat.size(0) for feat in protein_feats)
 
-    # PAD で右詰めパディング
-    maxL = max(t.size(0) for t in tgt_seqs) if len(tgt_seqs) > 0 else 0
-    B = len(tgt_seqs)
+    protein_batch = torch.zeros(B, S_max, D, dtype=torch.float32)
+    for i, feat in enumerate(protein_feats):
+        S_i = feat.size(0)
+        protein_batch[i, :S_i] = feat
+
+    # --- RNA ターゲット: PAD で右詰めパディング ---
+    maxL = max(t.size(0) for t in tgt_seqs)
     tgt_padded = torch.full((B, maxL), pad_id, dtype=torch.long)
     for i, t in enumerate(tgt_seqs):
         L = t.size(0)
         tgt_padded[i, :L] = t
 
-    return protein_feats, tgt_padded, list(prot_seqs)
+    return protein_batch, tgt_padded, list(prot_seqs)
 
 class RNADataset_NAR(Dataset):
     def __init__(self, protein_feat_file, csv_path, allowed_ids=None):

@@ -5,5 +5,5 @@ conda activate esm2
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u Decoder/main_DeepCLIP_AR.py >Decoder/output_error/output_1118.log 2>Decoder/output_error/error_1118.log &
+nohup python -u Decoder/main_AR.py >Decoder/output_error/output_1123.log 2>Decoder/output_error/error_1123.log &
 pid=$!

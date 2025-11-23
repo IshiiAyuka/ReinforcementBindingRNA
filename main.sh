@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u reinforce_ppi3d_AR_offtarget_test.py > output_test_10.log 2> error_test_10.log &
+nohup python -u reinforce_ppi3d_AR_offtarget_test.py > output_test_1123_1.log 2> error_test_1123_1.log &

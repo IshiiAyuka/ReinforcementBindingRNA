@@ -22,11 +22,6 @@ import multiprocessing as mp
 # ===========================
 def _reward_worker(task_q, result_q, gpu_id: int, common_kwargs: dict):
 
-    try:
-        torch.cuda.set_device(gpu_id)
-    except Exception:
-        pass  # CPUフォールバック許容
-
     while True:
         item = task_q.get()
         if item is None:
@@ -44,11 +39,7 @@ def _reward_worker(task_q, result_q, gpu_id: int, common_kwargs: dict):
 
 
 class LucaPPIRewardPool:
-    """
-    マルチGPUで predict_run を並列化する常駐プール。
-    """
     def __init__(self, gpu_ids, common_kwargs, max_workers=None):
-        # CUDAと相性の良い 'spawn'
         self.ctx = mp.get_context("spawn")
         self.gpu_ids = list(gpu_ids) if gpu_ids else [0]
         if max_workers is None:
@@ -72,13 +63,8 @@ class LucaPPIRewardPool:
         self._next_job_id = 0
 
     def score_pairs(self, prot_list, rna_list, device: str = "cpu"):
-        """
-        prot_list, rna_list: 同長のリスト（任意長）
-        → 並列に分割してスコアリングし、元の順序で torch.Tensor 返却
-        """
+
         N = len(prot_list)
-        if N == 0:
-            return torch.empty(0, dtype=torch.float32, device=device)
 
         num_workers = len(self.procs)
         chunks = []
@@ -142,15 +128,13 @@ def tokens_to_strings(tokens, ivocab, eos_id, pad_id, sos_id):
 def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_100nt_1110.pt"
-    protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1118_2.pt"
+    protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1123_1.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
     all_gpus = list(range(torch.cuda.device_count()))
     reward_gpu_ids = [g for g in all_gpus if g not in device_ids]
-    if len(reward_gpu_ids) == 0:
-        reward_gpu_ids = [all_gpus[-1]] if len(all_gpus) > 0 else []
 
     device = f'cuda:{device_ids[0]}' if torch.cuda.is_available() else 'cpu'
     if torch.cuda.is_available():
@@ -163,10 +147,8 @@ def main():
     grad_clip_norm  = 0.7
     batch_size      = 8
     entropy_bonus = 0.01
-    seed = 10
-
-    # --- オフターゲット抑制（シンプル） ---
-    OFFTARGET_LAMBDA = 1   # R_eff = R - λ * R_off
+    seed = 42
+    OFFTARGET_LAMBDA = 2  
 
     # --- データ準備 ---
     df = pd.read_csv(csv_path, low_memory=False)
@@ -233,21 +215,18 @@ def main():
     # --- 報酬プール初期化 ---
     luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
 
-    # DataLoader から最初の1バッチだけ取得し、それを max_steps 回使い回す
     single_batch = next(iter(train_loader))
     protein_feat, tgt_seqs, protein_seq_list = single_batch
     protein_feat = protein_feat.to(device, non_blocking=True)
+
+    eos_id  = config.rna_vocab["<eos>"]
+    pad_id  = config.rna_vocab["<pad>"]
+    sos_id  = config.rna_vocab["<sos>"]
 
     for step in tqdm(range(max_steps), desc="Steps"):
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        eos_id  = config.rna_vocab["<eos>"]
-        pad_id  = config.rna_vocab["<pad>"]
-        sos_id  = config.rna_vocab["<sos>"]
-
-        # ========= サンプリング（sample_decode_multiで生成）=========
-        was_training = model.training
         model.eval()
         sampled = sample_decode_multi_AR(
             model,
@@ -256,11 +235,9 @@ def main():
             num_samples=1,
             top_k=config.top_k,
             temperature=config.temp,
-        )  # List[List[int]]（<eos>以降なし）
-        if was_training:
-            model.train()
+        )  
+        model.train()
 
-        # PAD埋めで [B, L] の tokens を作成
         B = protein_feat.size(0)
         L = config.max_len
         tokens = torch.full((B, L), pad_id, dtype=torch.long, device=device)
@@ -272,16 +249,13 @@ def main():
                 tokens[i, ln] = eos_id
         
         # ========= logits 用の decoder 入力（先頭に <sos> を付ける）=========
-        sos_id = config.rna_vocab["<sos>"]
         sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)   # [B, 1]
         tgt_in = torch.cat([sos_col, tokens[:, :-1]], dim=1) 
 
         # ========= ログ確率用 logits（AR: teacher forcing で forward）=========
-        was_training = model.training
         model.eval()
-        logits = model(protein_feat, tgt_in)  # [B, L, V]（ProteinToRNA.forward が内部で <sos> 付与）
-        if was_training:
-            model.train()
+        logits = model(protein_feat, tgt_in) 
+        model.train()
 
         # 同条件マスキング（サンプル時と整合）
         logits = logits.clone()
@@ -296,9 +270,7 @@ def main():
         # ========= 3) オンターゲット（並列スコア）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
         with torch.no_grad():
-            R = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device)  # [B]
-            if R.dim() == 0:
-                R = R.expand(tokens.size(0))
+            R = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device)
 
         # ========= 3.5) オフターゲット（クロスバッチ平均）=========
         B_batch = len(protein_seq_list)
@@ -321,7 +293,6 @@ def main():
 
         # ========= 4) logp（<eos>まで平均）=========
         logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
-
 
         # ========= 4.5) エントロピー（<eos>まで平均）=========
         logp_all = logits.log_softmax(-1)          # [B, L, V]
@@ -368,12 +339,11 @@ def main():
         )
 
     # 保存
-    final_path = f"{output_path}"
     torch.save(
         model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict(),
-        final_path
+        output_path
     )
-    print(f"[save] Final weights saved to: {final_path}", flush=True)
+    print(f"[save] Final weights saved to: {output_path}", flush=True)
 
     # プール終了
     luca_pool.close()

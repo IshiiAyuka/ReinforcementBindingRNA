@@ -3,104 +3,91 @@ import torch
 import torch.nn as nn
 import esm
 from tqdm import tqdm
+from Bio import SeqIO
 
 # ===== 設定 =====
-fasta_path = "swissprot_all.fasta"
-out_path   = "t30_150M_swissprot_all.pt"
-layer = 30                              # esm2_t30_150M_UR50D の最終層
-BATCH_SIZE = 16                         # GPUメモリに合わせて調整
+fasta_path = "swissprot_RBP.fasta"
+out_path   = "t30_150M_swissprot_RBP_3D.pt"
+layer = 30            
 
 # ===== デバイス / モデル =====
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("[device]", device, "| #GPUs =", torch.cuda.device_count())
 
-base_model, alphabet = esm.pretrained.esm2_t30_150M_UR50D()
-
 class ESMWrapper(nn.Module):
-    def __init__(self, model, layer: int):
+    def __init__(self, model):
         super().__init__()
         self.model = model
-        self.layer = layer
-    def forward(self, tokens):
-        out = self.model(tokens=tokens, repr_layers=[self.layer])
-        return out["representations"][self.layer]  # [B,L,D]
 
-model = ESMWrapper(base_model, layer).to(device)
+    def forward(self, tokens):
+        return self.model(tokens=tokens, repr_layers=[layer])
+
+model, alphabet = esm.pretrained.esm2_t30_150M_UR50D()
+model = ESMWrapper(model).to(device)
 batch_converter = alphabet.get_batch_converter()
 
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model.eval()
 
-# ===== FASTA 読み込み =====
-def read_fasta(path: str):
-    recs = []
-    with open(path, "r") as f:
-        header = None
-        seq = []
-        for line in f:
-            s = line.strip()
-            if not s:
-                continue
-            if s.startswith(">"):
-                if header is not None:
-                    recs.append({"header": header, "seq": "".join(seq).replace(" ", "").upper()})
-                header = s[1:].split()[0]  # 先頭トークン（例: sp|A0A075QQ08|IF4E1_TOBAC）
-                seq = []
-            else:
-                seq.append(s)
-        if header is not None:
-            recs.append({"header": header, "seq": "".join(seq).replace(" ", "").upper()})
-    return recs
-
-def header_to_accession(header: str) -> str:
-    """UniProt系 'sp|ACC|ID' 形式ならACCを返す。そうでなければheader全体を返す。"""
-    parts = header.split("|")
-    return parts[1] if len(parts) >= 2 else header
-
 # ===== バッチ特徴量抽出 =====
 @torch.no_grad()
-def extract_batch(names, seqs):
-    # ESMのバッチ変換（CPU上でOK）
-    _, _, tokens = batch_converter(list(zip(names, seqs)))   # [B,L]
-    # DataParallel使用時はCPUのまま渡すと自動で各GPUへscatterされる
-    if not isinstance(model, nn.DataParallel):
-        tokens = tokens.to(device)
-
-    reps = model(tokens)  # [B,L,D] （DPのときは自動で集約されdevice[0]上に載る）
-    # 可変長処理のため、CPU側tokensで実長を計算（BOS/EOSを除外）
-    lengths = (tokens != alphabet.padding_idx).sum(dim=1).tolist()  # 各サンプルの有効長
-
-    feats = []
-    for i, L in enumerate(lengths):
-        if L < 3:
-            # 実質的に配列が無いケース（BOS/EOSのみ）をスキップ
-            feats.append(None)
-            continue
-        # 1 .. L-2 が実アミノ酸領域（BOS=0, EOS=L-1）
-        vec = reps[i, 1:L-1, :].mean(dim=0).detach().cpu()  # [D]
-        feats.append(vec)
-    return feats
+def extract_features(name, seq):
+    _, _, batch_tokens = batch_converter([(name, seq)])
+    batch_tokens = batch_tokens.to(device)
+    results = model(batch_tokens)
+    token_representations = results["representations"][layer]
+    tokens_len = (batch_tokens != alphabet.padding_idx).sum(1)[0].item()
+    rep = token_representations[0, 1:tokens_len - 1].cpu()
+    del batch_tokens, results, token_representations
+    torch.cuda.empty_cache()
+    return rep
 
 # ===== 実行 =====
-records = read_fasta(fasta_path)
 protein_features = {}  # { "A0A075QQ08": tensor[D], ... }
+records = list(SeqIO.parse(fasta_path, "fasta"))
 
-# 長さフィルタ
-filtered = [(r["header"], r["seq"]) for r in records if 10 <= len(r["seq"]) <= 1000]
+for record in tqdm(records, desc="特徴量抽出中 (FASTA)"):
+    # 例: record.id = "sp|A0A075QQ08|IF4E1_TOBAC"
+    raw_id = str(record.id).strip()
+    parts = raw_id.split("|")
 
-for i in tqdm(range(0, len(filtered), BATCH_SIZE), desc="特徴量抽出中"):
-    chunk = filtered[i:i+BATCH_SIZE]
-    names = [h for h, _ in chunk]
-    seqs  = [s for _, s in chunk]
+    # sp|ACC|NAME の形式なら ACC だけを使う
+    if len(parts) >= 3 and parts[0] in ("sp", "tr"):
+        uid = parts[1]        # 例: "A0A075QQ08"
+    else:
+        uid = raw_id          # それ以外はそのまま
 
-    feats = extract_batch(names, seqs)
-    for h, s, f in zip(names, seqs, feats):
-        if f is None:
-            continue
-        acc = header_to_accession(h)     # ← ここでキーをアクセッションだけに統一！
-        protein_features[acc] = f
+    seq = str(record.seq).strip().upper()
 
-# 保存（{アクセッション: Tensor[D]}）
+    if not uid or not seq:
+        print(f"Skip（欠損）: uid={uid}, len={len(seq) if seq else 0}")
+        continue
+
+    # すでに同じ ID を処理済みならスキップ
+    if uid in protein_features:
+        continue
+
+    L = len(seq)
+    if L > 1000:
+        print(f"Skip {uid}（長さ{L}）: 配列長が条件外")
+        continue
+
+    try:
+        rep = extract_features(uid, seq)  # [L, 640]
+        protein_features[uid] = rep
+        print(f"成功: {uid}（長さ{L}, shape={tuple(rep.shape)}）")
+    except Exception as e:
+        print(f"Error processing {uid}: {e}")
+        torch.cuda.empty_cache()
+        continue
+
+# ===== 保存 & 簡単な確認 =====
 torch.save(protein_features, out_path)
-print(f"[done] 保存: {out_path} | 件数={len(protein_features)} | 次元={next(iter(protein_features.values())).shape[0] if protein_features else 'N/A'}")
+print(f"特徴量を {out_path} に保存しました。")
+
+loaded = torch.load(out_path, map_location="cpu")
+for i, (k, v) in enumerate(loaded.items()):
+    print(f"{i+1}. {k}: shape={tuple(v.shape)}, dim={v.dim()}")
+    if i >= 4:
+        break

@@ -7,6 +7,9 @@ import esm
 from tqdm import tqdm
 from Bio.PDB.MMCIFParser import MMCIFParser
 from Bio.SeqUtils import seq1
+import pandas as pd
+
+layer = 30
 
 # デバイス設定
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -19,17 +22,15 @@ class ESMWrapper(nn.Module):
         self.model = model
 
     def forward(self, tokens):
-        return self.model(tokens=tokens, repr_layers=[6])
+        return self.model(tokens=tokens, repr_layers=[layer])
 
 # ESM2モデルの読み込み
-model, alphabet = esm.pretrained.esm2_t6_8M_UR50D()
+model, alphabet = esm.pretrained.esm2_t30_150M_UR50D()
 model = ESMWrapper(model).to(device)
 batch_converter = alphabet.get_batch_converter()
 
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
-    print(f"複数GPU({torch.cuda.device_count()}個)検出")
-
 model.eval()
 
 # CIFからChainごとにアミノ酸配列を抽出
@@ -63,7 +64,7 @@ def extract_features(name, seq):
     batch_labels, batch_strs, batch_tokens = batch_converter([(name, seq)])
     batch_tokens = batch_tokens.to(device)
     results = model(batch_tokens)
-    token_representations = results["representations"][6]
+    token_representations = results["representations"][layer]
     tokens_len = (batch_tokens != alphabet.padding_idx).sum(1)[0]
     rep = token_representations[0, 1:tokens_len - 1].mean(0).cpu()
     del batch_tokens, results, token_representations
@@ -93,12 +94,5 @@ for cif_path in tqdm(cif_files, desc="特徴量抽出中"):
             continue
 
 # 保存
-torch.save(protein_features, "filtered_protein_features.pt")
-print("特徴量を filtered_protein_features.pt に保存しました。")
-
-print("\n=== 保存された特徴量の一部 ===")
-loaded = torch.load("filtered_protein_features.pt")
-for i, (k, v) in enumerate(loaded.items()):
-    print(f"{i+1}. {k}: shape={v.shape}")
-    if i >= 4:  # 最初の5件だけ表示
-        break
+torch.save(protein_features, "t30_150M_deepclip.pt")
+print("特徴量を保存しました。")
