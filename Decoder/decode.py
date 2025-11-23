@@ -201,119 +201,101 @@ def sample_decode_multi_AR(model,
     
     device = next(model.parameters()).device
 
-    if protein_feat.dim() == 1:
-        feat = protein_feat.unsqueeze(0)
-    elif protein_feat.dim() == 2:
-        feat = protein_feat
-    else:
-        raise ValueError(f"protein_feat.dim() must be 1 or 2, got {protein_feat.dim()}")
-
-    feat = feat.to(device, non_blocking=True)
-
-    B = feat.size(0)
-    out_all = [[] for _ in range(B)]
+    protein_feat = protein_feat.to(device, non_blocking=True)
+    B, S_seq, D_in = protein_feat.shape
 
     PAD = config.rna_vocab["<pad>"]
     SOS = config.rna_vocab["<sos>"]
     EOS = config.rna_vocab["<eos>"]
 
-    target = int(num_samples) if num_samples is not None else 1
-    S_step = getattr(config, "samples_chunk_size", 0) or min(target, 8)
+    feat_rep = protein_feat.repeat_interleave(num_samples, dim=0)
+    N = feat_rep.size(0) 
 
-    rounds = math.ceil(target / S_step)
+    # 生成用トークン列
+    toks = torch.full((N, 1), SOS, dtype=torch.long, device=device)  # [N, 1]
+    finished = torch.zeros(N, dtype=torch.bool, device=device)
 
-    for r in range(rounds):
-        remaining = target - (rounds - 1) * S_step if r == rounds - 1 else S_step
-        S = max(1, remaining)
+    for t in range(max_len - 1):
+        # logits: [N, L, V]
+        logits = model(feat_rep, toks)
+        next_logits = logits[:, -1, :].clone()  # [N, V]
 
-        # [B*S, D] 
-        feat_rep = feat.repeat_interleave(S, dim=0)
-        N = feat_rep.size(0)
+        # 生成禁止: <pad>, <sos>
+        next_logits[:, PAD] = float("-inf")
+        next_logits[:, SOS] = float("-inf")
 
-        toks = torch.full((N, 1), SOS, dtype=torch.long, device=device)
-        finished = torch.zeros(N, dtype=torch.bool, device=device)
+        # 最小長未満は <eos> 禁止
+        cur_len_no_sos = toks.size(1) - 1
+        if cur_len_no_sos < config.min_len:
+            next_logits[~finished, EOS] = float("-inf")
 
-        for t in range(max_len - 1):
-            # ① モデルから logits を取得
-            logits = model(feat_rep, toks)          # [N, L, V]
-            next_logits = logits[:, -1, :].clone()  # [N, V]
+        # 温度
+        if temperature and temperature != 1.0:
+            next_logits = next_logits / max(temperature, 1e-6)
 
-            # ② マスク処理
-            # 生成禁止: <pad>, <sos>
-            next_logits[:, PAD] = float("-inf")
-            next_logits[:, SOS] = float("-inf")
+        # top-k
+        V = next_logits.size(-1)
+        if top_k and 0 < top_k < V:
+            topv, topi = torch.topk(next_logits, k=top_k, dim=-1)
+            masked = torch.full_like(next_logits, float("-inf"))
+            next_logits = masked.scatter(1, topi, topv)
 
-            # 最小長未満は <eos> 禁止
-            cur_len_no_sos = toks.size(1) - 1
-            if cur_len_no_sos < config.min_len:
-                next_logits[~finished, EOS] = float("-inf")
+        # softmax → サンプリング
+        probs = torch.softmax(next_logits, dim=-1)      # [N, V]
+        next_ids = torch.multinomial(probs, 1).squeeze(1)  # [N]
 
-            # 温度
-            if temperature and temperature != 1.0:
-                next_logits = next_logits / max(temperature, 1e-6)
+        # 終了済み行は EOS 固定
+        if finished.any():
+            next_ids = torch.where(
+                finished,
+                torch.full_like(next_ids, EOS),
+                next_ids,
+            )
 
-            # top-k
-            V = next_logits.size(-1)
-            if top_k and 0 < top_k < V:
-                topv, topi = torch.topk(next_logits, k=top_k, dim=-1)
-                masked = torch.full_like(next_logits, float("-inf"))
-                next_logits = masked.scatter(1, topi, topv)
+        toks = torch.cat([toks, next_ids.unsqueeze(1)], dim=1)  # [N, L+1]
+        finished |= (next_ids == EOS)
 
-            # ③ softmax
-            probs = torch.softmax(next_logits, dim=-1)
+        if finished.all():
+            break
 
-            # ④ ここでまとめてチェック
-            #_debug_check_decoding(logits, next_logits, probs, t)
+    # ========= トークン列 → ID列（タンパク質ごと / サンプルごと） =========
+    seqs_all = []  # 長さ N (= B * num_samples) を想定
 
-            # ⑤ サンプリング
-            next_ids = torch.multinomial(probs, 1).squeeze(1)
-
-            # 終了済み行は以後EOS固定
-            if finished.any():
-                next_ids = torch.where(finished, torch.full_like(next_ids, EOS), next_ids)
-            toks = torch.cat([toks, next_ids.unsqueeze(1)], dim=1)
-            finished |= (next_ids == EOS)
-            if finished.all():
+    for row in toks:  # row: [L]
+        seq = []
+        for tok in row.tolist():
+            if tok == EOS:
                 break
-
-        # BごとにS本へ分割し、<eos>で切り、<pad>/<sos>除外（重複OK）
-        for i in range(B):
-            if len(out_all[i]) >= target:
+            if tok in (PAD, SOS):
                 continue
+            seq.append(tok)
 
-            block = toks[i*S:(i+1)*S]  # [S, L]
-            for row in block:
-                if len(out_all[i]) >= target:
-                    break
-                seq = []
-                for tok in row.tolist():
-                    if tok == EOS: break
-                    if tok in (PAD, SOS): continue
-                    seq.append(tok)
+        if len(seq) < config.min_len:
+            continue  # 通常は起こらない想定（EOS 禁止しているため）
 
-                if len(seq) < config.min_len:
-                    continue
+        seqs_all.append(seq)
 
-                out_all[i].append(seq)
+    # ========= B × num_samples の形にグルーピング =========
+    out_all = [[] for _ in range(B)]
+    expected = B * num_samples
+    total = min(len(seqs_all), expected)
 
-    # 本数保証
+    idx = 0
     for i in range(B):
-        n = len(out_all[i])
-        if n < target:
-            if n == 0:
-                print(f"[WARN] 生成配列が0件: idx={i}. "
-                      "min_len と max_len / top_k / temperature を確認してください。")
-            else:
-                k = 0
-                while len(out_all[i]) < target:
-                    out_all[i].append(out_all[i][k % n])
-                    k += 1
+        for _ in range(num_samples):
+            if idx >= total:
+                break
+            out_all[i].append(seqs_all[idx])
+            idx += 1
 
-    if target == 1:
+    # ========= 返り値の形（B と num_samples に応じて） =========
+    if num_samples == 1:
         if B == 1:
-            # 単一タンパク質 + 1サンプル → list[int] を返す
+            # 単一タンパク質 + 1サンプル → List[int]
             return out_all[0][0] if len(out_all[0]) > 0 else []
         else:
-            # バッチ入力のときは従来どおり、各タンパク質ごとに1本ずつ返す
+            # バッチ入力 + 各タンパク質1本 → List[List[int]] (len = B)
             return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
-    return out_all
+    else:
+        # 一般ケース: List[List[List[int]]]  (B × num_samples × 可変長)
+        return out_all
