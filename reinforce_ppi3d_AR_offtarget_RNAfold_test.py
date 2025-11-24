@@ -148,7 +148,7 @@ def main():
     batch_size      = 8
     entropy_bonus = 0.01
     seed = 42
-    OFFTARGET_LAMBDA = 1
+    OFFTARGET_LAMBDA = 1  
 
     # --- データ準備 ---
     df = pd.read_csv(csv_path, low_memory=False)

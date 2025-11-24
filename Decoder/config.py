@@ -23,7 +23,7 @@ max_len = 102
 min_len = 10
 top_k = 2
 num_samples = 1
-temp = 1.5
+temp = 3
 prot_max_len = 1000
 
 # --- デバイス設定 ---
