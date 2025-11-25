@@ -1,5 +1,5 @@
 #!/bin/bash
-#$ -l h_vmem=100G
+#$ -l h_vmem=150G
 
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u reinforce_ppi3d_AR_offtarget_test.py > output_test_1123_3.log 2> error_test_1123_3.log &
+nohup python -u reinforce_ppi3d_AR_offtarget_GC_test.py > output_test_1125_1.log 2> error_test_1125_1.log &
