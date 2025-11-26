@@ -21,7 +21,6 @@ import multiprocessing as mp
 #  報酬: マルチGPU並列プール
 # ===========================
 def _reward_worker(task_q, result_q, gpu_id: int, common_kwargs: dict):
-
     while True:
         item = task_q.get()
         if item is None:
@@ -63,14 +62,15 @@ class LucaPPIRewardPool:
         self._next_job_id = 0
 
     def score_pairs(self, prot_list, rna_list, device: str = "cpu"):
-
         N = len(prot_list)
+        if N == 0:
+            return torch.empty(0, dtype=torch.float32, device=device)
 
         num_workers = len(self.procs)
         chunks = []
         for w in range(num_workers):
             start = (N * w) // num_workers
-            end   = (N * (w + 1)) // num_workers
+            end = (N * (w + 1)) // num_workers
             if start >= end:
                 continue
             indices = list(range(start, end))
@@ -101,23 +101,26 @@ class LucaPPIRewardPool:
 # ===========================
 def logprob_from_logits(logits, tokens, pad_id, eos_id):
     logp_tok = logits.log_softmax(-1).gather(-1, tokens.unsqueeze(-1)).squeeze(-1)  # [B,L]
-    not_pad  = (tokens != pad_id)
+    not_pad = (tokens != pad_id)
     eos_mask = (tokens == eos_id)
-    csum     = eos_mask.int().cumsum(dim=1)
+    csum = eos_mask.int().cumsum(dim=1)
     before_eos = (csum == 0)
-    first_eos  = eos_mask & (csum == 1)
+    first_eos = eos_mask & (csum == 1)
     include = (before_eos | first_eos) & not_pad
     num = (logp_tok * include.float()).sum(dim=-1)
     den = include.float().sum(dim=-1).clamp_min(1.0)
     return num / den  # 長さ正規化（平均）
+
 
 def tokens_to_strings(tokens, ivocab, eos_id, pad_id, sos_id):
     seqs = []
     for row in tokens.tolist():
         s = []
         for t in row:
-            if t == eos_id: break
-            if t == pad_id or t == sos_id: continue
+            if t == eos_id:
+                break
+            if t == pad_id or t == sos_id:
+                continue
             s.append(ivocab[int(t)])
         seqs.append("".join(s))
     return seqs
@@ -144,29 +147,37 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1123_2.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_2.pt"
 
     # --- GPU割り当て ---
-    device_ids = [0]
+    device_ids = [3]
     all_gpus = list(range(torch.cuda.device_count()))
     reward_gpu_ids = [g for g in all_gpus if g not in device_ids]
 
-    device = f'cuda:{device_ids[0]}' if torch.cuda.is_available() else 'cpu'
+    device = f"cuda:{device_ids[0]}" if torch.cuda.is_available() else "cpu"
     if torch.cuda.is_available():
         torch.cuda.set_device(device_ids[0])
 
     # --- ハイパーパラメータ ---
-    baseline_mean   = torch.tensor(0.0, device=device)  # 報酬の移動平均(=ベースライン)
-    baseline_alpha  = 0.5
-    max_steps       = 10000
-    grad_clip_norm  = 0.7
-    batch_size      = 8
-    entropy_bonus   = 0.01
-    seed            = 42
-    OFFTARGET_LAMBDA = 1
-    GC_LOW   = 0.40   # 40%
-    GC_HIGH  = 0.80   # 80%
-    GC_LAMBDA = 1   # GC報酬の重み（適宜調整）
+    baseline_mean = torch.tensor(0.0, device=device)
+    baseline_alpha = 0.5
+    max_steps = 10000
+    grad_clip_norm = 0.7
+    pool_batch_size = 16          # 固定プール（最初の1バッチ）
+    gen_batch_size = 6            # ★ 毎stepの生成は 1(on) + 5(off) = 6
+    entropy_bonus = 0.01
+    seed = 42
+
+    OFFTARGET_LAMBDA = 1.0
+    OFFTARGET_K = 5              # ★ 毎stepランダムに5本
+
+    GC_LOW = 0.40
+    GC_HIGH = 0.80
+    GC_LAMBDA = 1.0
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    rng_off = random.Random(seed + 123)  # オフターゲット選択専用（他と干渉させない）
 
     # --- データ準備 ---
     df = pd.read_csv(csv_path, low_memory=False)
@@ -176,34 +187,33 @@ def main():
         cluster_dict[row["cluster_id"]].append(row["subunit_1"])
 
     clusters = list(cluster_dict.values())
-    random.seed(seed)
     random.shuffle(clusters)
     split_idx = int(0.95 * len(clusters))
     train_ids = {sid for cluster in clusters[:split_idx] for sid in cluster}
+
     dataset_train = RNADataset_AR(protein_feat_path, csv_path, allowed_ids=train_ids)
     train_loader = DataLoader(
         dataset_train,
-        batch_size=batch_size,
+        batch_size=pool_batch_size,
         shuffle=True,
         collate_fn=custom_collate_fn_AR,
         pin_memory=True,
         num_workers=4,
-        persistent_workers=True
+        persistent_workers=True,
+        drop_last=True,  # 16本を確実に確保
     )
-    torch.manual_seed(seed)
 
     # --- モデル定義 ---
     model = ProteinToRNA(
         input_dim=config.input_dim,
         num_layers=config.num_layers,
-        vocab_size=len(config.rna_vocab),   
-        max_len=config.max_len
+        vocab_size=len(config.rna_vocab),
+        max_len=config.max_len,
     )
     state_dict = torch.load(weights, map_location="cpu")
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
-        name = k.replace("module.", "")
-        new_state_dict[name] = v
+        new_state_dict[k.replace("module.", "")] = v
     model.load_state_dict(new_state_dict, strict=False)
 
     model.to(device)
@@ -212,51 +222,69 @@ def main():
 
     # --- LucaOne 共通引数（プールへ渡す） ---
     common_kwargs = dict(
-        model_path = "LucaOneTasks/",
-        llm_truncation_seq_length = 100,
-        dataset_name = "ncRPI",
-        dataset_type = "gene_protein",
-        task_type = "binary_class",
-        task_level_type = "seq_level",
-        model_type = "lucappi2",
-        input_type = "matrix",
-        input_mode = "pair",
-        threshold = 0.5,
-        step = "716380",
-        time_str = "20240404105148",
-        topk = None,
-        gpu_id = reward_gpu_ids[0] if len(reward_gpu_ids) > 0 else 0,  # 初期値（各ワーカーで上書き）
-        emb_dir = None,
-        matrix_embedding_exists = False
+        model_path="LucaOneTasks/",
+        llm_truncation_seq_length=100,
+        dataset_name="ncRPI",
+        dataset_type="gene_protein",
+        task_type="binary_class",
+        task_level_type="seq_level",
+        model_type="lucappi2",
+        input_type="matrix",
+        input_mode="pair",
+        threshold=0.5,
+        step="716380",
+        time_str="20240404105148",
+        topk=None,
+        gpu_id=reward_gpu_ids[0] if len(reward_gpu_ids) > 0 else 0,
+        emb_dir=None,
+        matrix_embedding_exists=False,
     )
 
     # --- 報酬プール初期化 ---
     luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
 
+    # ===== 固定プールを1回だけ作る（16本）=====
     single_batch = next(iter(train_loader))
-    protein_feat, tgt_seqs, protein_seq_list = single_batch
-    protein_feat = protein_feat.to(device, non_blocking=True)
+    protein_feat_all, _, protein_seq_list_all = single_batch  # [16, ...], len=16
 
-    eos_id  = config.rna_vocab["<eos>"]
-    pad_id  = config.rna_vocab["<pad>"]
-    sos_id  = config.rna_vocab["<sos>"]
+    eos_id = config.rna_vocab["<eos>"]
+    pad_id = config.rna_vocab["<pad>"]
+    sos_id = config.rna_vocab["<sos>"]
+
+    target_idx = 0
+    remain = [i for i in range(len(protein_seq_list_all)) if i != target_idx]
+
 
     for step in tqdm(range(max_steps), desc="Steps"):
-        model.train()
         optimizer.zero_grad(set_to_none=True)
 
+        # ============================================================
+        # ★ 毎step: (on=1) + (off=5をランダム) の計6本だけで生成する
+        # ============================================================
+        k = min(OFFTARGET_K, len(remain))
+        off_indices = rng_off.sample(remain, k=k) if k > 0 else []
+        sel_indices = [target_idx] + off_indices  # 先頭がオンターゲット
+        # Bは原則6（remain>=5なら）
+        B = len(sel_indices)
+
+        protein_feat_step = protein_feat_all[sel_indices].to(device, non_blocking=True)  # [B, ...]
+        prot_step_list = [protein_seq_list_all[i] for i in sel_indices]
+        target_prot_step = prot_step_list[0]
+        off_prots_step = prot_step_list[1:]  # len=k
+
+        # ===== サンプリング（B本生成）=====
         model.eval()
         sampled = sample_decode_multi_AR(
             model,
-            protein_feat,
+            protein_feat_step,
             max_len=config.max_len,
             num_samples=1,
             top_k=config.top_k,
             temperature=config.temp,
-        )  
-        model.train()
+        )
+        # sampled: list length B
 
-        B = protein_feat.size(0)
+        # ===== tokens 化 =====
         L = config.max_len
         tokens = torch.full((B, L), pad_id, dtype=torch.long, device=device)
         for i, seq in enumerate(sampled):
@@ -265,109 +293,87 @@ def main():
                 tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
             if ln < L and ln >= config.min_len:
                 tokens[i, ln] = eos_id
-        
-        # ========= logits 用の decoder 入力（先頭に <sos> を付ける）=========
-        sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)   # [B, 1]
-        tgt_in = torch.cat([sos_col, tokens[:, :-1]], dim=1) 
 
-        # ========= ログ確率用 logits（AR: teacher forcing で forward）=========
-        model.eval()
-        logits = model(protein_feat, tgt_in) 
-        model.train()
+        # ===== logits 用 decoder 入力 =====
+        sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)
+        tgt_in = torch.cat([sos_col, tokens[:, :-1]], dim=1)
 
-        # 同条件マスキング（サンプル時と整合）
+        # ===== ログ確率用 logits（gradあり）=====
+        logits = model(protein_feat_step, tgt_in)  # model.eval() でも grad は流れる（dropoutだけOFF）
         logits = logits.clone()
-        logits[..., pad_id]  = -1e9
-        logits[..., sos_id]  = -1e9
+        logits[..., pad_id] = -1e9
+        logits[..., sos_id] = -1e9
         _min_len = min(config.min_len, logits.size(1))
         logits[:, :_min_len, eos_id] = -1e9
-
         if config.temp != 1.0:
             logits = logits / max(config.temp, 1e-6)
 
-        # ========= 3) オンターゲット（並列スコア）=========
+        # ===== 文字列化（B本）=====
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
+
+        # ============================================================
+        # ★ 報酬は「オンターゲット生成（0番RNA）」だけでスカラーにする
+        # ============================================================
+        rna_on = rna_strs[0]
+
         with torch.no_grad():
-            R = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device)
+            Ron = luca_pool.score_pairs([target_prot_step], [rna_on], device=device).view(-1)[0]  # scalar
+            if len(off_prots_step) > 0:
+                Roff = luca_pool.score_pairs(off_prots_step, [rna_on] * len(off_prots_step), device=device).mean()
+            else:
+                Roff = torch.tensor(0.0, device=device)
 
-        # ========= 3.5) オフターゲット（クロスバッチ平均）=========
-        B_batch = len(protein_seq_list)
-        if B_batch > 1:
-            prot_off, rna_off = [], []
-            for i in range(B_batch):
-                for j in range(B_batch):
-                    if j == i:
-                        continue
-                    prot_off.append(protein_seq_list[j])
-                    rna_off.append(rna_strs[i])
-            with torch.no_grad():
-                scores_off = luca_pool.score_pairs(prot_off, rna_off, device=device)
-            R_off = scores_off.reshape(B_batch, B_batch - 1).mean(dim=1)  # [B]
-        else:
-            R_off = torch.zeros_like(R)
+        Reff = Ron - OFFTARGET_LAMBDA * Roff
 
-        # ========= 3.6) 有効報酬（Luca + オフターゲット）=========
-        R_eff = R - OFFTARGET_LAMBDA * R_off
+        # ===== GC（罰則付き、オンターゲットRNAのみ）=====
+        gc_on = torch.tensor(compute_gc_fraction(rna_on), dtype=torch.float32, device=device)  # scalar
+        ok = (gc_on >= GC_LOW) & (gc_on <= GC_HIGH)
+        Rgc = torch.where(ok, torch.tensor(1.0, device=device), torch.tensor(-1.0, device=device))  # scalar
 
-        # ========= 3.7) GC報酬 =========
-        gc_list = [compute_gc_fraction(s) for s in rna_strs]  # 各配列の GC比 (0〜1)
-        gc_frac = torch.tensor(gc_list, dtype=torch.float32, device=device)     # [B]
+        R_total = Reff + GC_LAMBDA * Rgc  # scalar
 
-        # 40〜80% を「OK」とする 0/1 報酬
-        #   r_GC(s) = 1  (0.4 <= g(s) <= 0.8)
-        #           = 0  (それ以外)
-        R_gc = ((gc_frac >= GC_LOW) & (gc_frac <= GC_HIGH)).float()            # [B]
+        # ===== logp（オンターゲットの1本だけ）=====
+        logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)  # [B]
+        logp_on = logp_batch[0]  # scalar
 
-        # Luca + オフターゲット + GC をまとめた最終報酬
-        #   R_total = R_eff + λ_GC * r_GC
-        R_total = R_eff + GC_LAMBDA * R_gc
+        # ===== エントロピー（オンターゲット1本だけ）=====
+        logp_all = logits.log_softmax(-1)              # [B, L, V]
+        probs = logp_all.exp()
+        tok_entropy = -(probs * logp_all).sum(dim=-1)  # [B, L]
 
-        # ========= 4) logp（<eos>まで平均）=========
-        logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
-
-        # ========= 4.5) エントロピー（<eos>まで平均）=========
-        logp_all = logits.log_softmax(-1)          # [B, L, V]
-        probs = logp_all.exp()                     # [B, L, V]
-        tok_entropy = -(probs * logp_all).sum(dim=-1)  # [B, L]  各トークンのエントロピー
-
-        not_pad  = (tokens != pad_id)
+        not_pad = (tokens != pad_id)
         eos_mask = (tokens == eos_id)
-        csum     = eos_mask.int().cumsum(dim=1)
+        csum = eos_mask.int().cumsum(dim=1)
         before_eos = (csum == 0)
-        first_eos  = eos_mask & (csum == 1)
-        include = (before_eos | first_eos) & not_pad  # [B, L]
+        first_eos = eos_mask & (csum == 1)
+        include = (before_eos | first_eos) & not_pad
 
         include_f = include.float()
-        den_ent = include_f.sum(dim=-1).clamp_min(1.0)          # [B]
-        entropy_batch = (tok_entropy * include_f).sum(dim=-1) / den_ent  # [B]
-        entropy_mean = entropy_batch.mean()     
+        den_ent = include_f.sum(dim=-1).clamp_min(1.0)                  # [B]
+        entropy_batch = (tok_entropy * include_f).sum(dim=-1) / den_ent # [B]
+        entropy_on = entropy_batch[0]                                   # scalar
 
-        # ========= 5) REINFORCE損失 =========
+        # ===== REINFORCE（スカラー）=====
         with torch.no_grad():
-            R_mean = R_total.mean()
-            baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
+            baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_total
         advantage = (R_total - baseline_mean).detach()
-        loss = -(advantage * logp_batch).mean()
 
-        loss = loss - entropy_bonus * entropy_mean
-
-        # 逆伝播＆更新（← 1ステップにつき1回）
+        loss = -(advantage * logp_on) - entropy_bonus * entropy_on
         loss.backward()
         clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        # ====== ログ ======
-        loss_val = float(loss.detach().cpu())
-        R_mean_val = float(R.mean().detach().cpu())
-        Roff_mean_val = float(R_off.mean().detach().cpu())
-        Reff_mean_val = float(R_eff.mean().detach().cpu())
-        Rgc_mean_val  = float(R_gc.mean().detach().cpu())
-        base_val = float(baseline_mean.detach().cpu())
+        # ===== ログ（オンターゲットだけ、1行）=====
         print(
-            f"[step] step={step:06d} loss={loss_val:.5f} "
-            f"R={R_mean_val:.5f} Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} "
-            f"Rgc={Rgc_mean_val:.5f} baseline={base_val:.5f}",
-            f"RNAs={'|'.join(rna_strs)}",
+            f"[step] step={step:06d} "
+            f"loss={float(loss.detach().cpu()):.5f} "
+            f"Ron={float(Ron.detach().cpu()):.5f} "
+            f"Roff={float(Roff.detach().cpu()):.5f} "
+            f"Reff={float(Reff.detach().cpu()):.5f} "
+            f"Rgc={float(Rgc.detach().cpu()):+.1f} "
+            f"GC={float(gc_on.detach().cpu()):.3f} "
+            f"baseline={float(baseline_mean.detach().cpu()):.5f} "
+            f"RNA={rna_on}",
             flush=True,
         )
 
@@ -378,7 +384,6 @@ def main():
     )
     print(f"[save] Final weights saved to: {output_path}", flush=True)
 
-    # プール終了
     luca_pool.close()
 
 

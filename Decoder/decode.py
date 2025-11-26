@@ -289,12 +289,8 @@ def sample_decode_multi_AR(model,
 
     # ========= 返り値の形（B と num_samples に応じて） =========
     if num_samples == 1:
-        if B == 1:
-            # 単一タンパク質 + 1サンプル → List[int]
-            return out_all[0][0] if len(out_all[0]) > 0 else []
-        else:
-            # バッチ入力 + 各タンパク質1本 → List[List[int]] (len = B)
-            return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
-    else:
-        # 一般ケース: List[List[List[int]]]  (B × num_samples × 可変長)
-        return out_all
+    # 常に「タンパク質ごとに1本」: List[List[int]] (len = B)
+        return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
+
+    # 一般ケース: List[List[List[int]]]  (B × num_samples × 可変長)
+    return out_all

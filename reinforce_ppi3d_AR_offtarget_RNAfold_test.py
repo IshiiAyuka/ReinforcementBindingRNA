@@ -63,11 +63,9 @@ class LucaPPIRewardPool:
             self.procs.append(p)
 
     def score_pairs(self, prot_list, rna_list, device: str = "cpu"):
-        """
-        prot_list, rna_list: 同長のリスト（任意長）
-        → 並列に分割してスコアリングし、元の順序で torch.Tensor を返す
-        """
         N = len(prot_list)
+        if N == 0:
+            return torch.empty(0, dtype=torch.float32, device=device)
 
         num_workers = len(self.procs)
         num_jobs = 0
@@ -145,11 +143,13 @@ def compute_rnafold_energies(rna_strs, device):
         capture_output=True,
         check=True,
     )
+
     lines = proc.stdout.strip().splitlines()
     for k, (idx, _) in enumerate(non_empty):
         struct_line = lines[2 * k + 1]
         m = re.search(r"\(\s*([-+]?\d+(?:\.\d+)?)\s*\)\s*$", struct_line)
-
+        if m:
+            energies[idx] = float(m.group(1))
     return torch.tensor(energies, dtype=torch.float32, device=device)
 
 
@@ -160,10 +160,10 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1124_1.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_1.pt"
 
     # --- GPU割り当て ---
-    device_ids = [1]
+    device_ids = [0]
     all_gpus = list(range(torch.cuda.device_count()))
     reward_gpu_ids = [g for g in all_gpus if g not in device_ids]
 
@@ -176,11 +176,15 @@ def main():
     baseline_alpha = 0.5
     max_steps = 10000
     grad_clip_norm = 0.7
-    batch_size = 8
+    batch_size = 16                    
     entropy_bonus = 0.01
     seed = 42
     OFFTARGET_LAMBDA = 1
-    STRUCT_LAMBDA = 1  # RNAfold 構造スコアの重み
+    STRUCT_LAMBDA = 1                  # RNAfold 構造スコアの重み
+    OFFTARGET_K = 5                     
+
+    # オフターゲット抽出用の乱数（他のrandomと干渉しない）
+    rng_off = random.Random(seed + 123)
 
     # --- データ準備 ---
     df = pd.read_csv(csv_path, low_memory=False)
@@ -199,7 +203,7 @@ def main():
     dataset_train = RNADataset_AR(protein_feat_path, csv_path, allowed_ids=train_ids)
     train_loader = DataLoader(
         dataset_train,
-        batch_size=batch_size,
+        batch_size=batch_size,          
         shuffle=True,
         collate_fn=custom_collate_fn_AR,
         pin_memory=True,
@@ -249,10 +253,17 @@ def main():
     # --- 報酬プール初期化 ---
     luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
 
-    # DataLoader から最初の1バッチだけ取得し、それを使い回し
+    # DataLoader から最初の1バッチだけ取得（16個のプール）
     single_batch = next(iter(train_loader))
-    protein_feat, _, protein_seq_list = single_batch
-    protein_feat = protein_feat.to(device, non_blocking=True)
+    protein_feat_all, _, protein_seq_list_all = single_batch
+
+    # ★ オンターゲットを1つ固定（ここでは先頭を固定。必要ならランダム固定にもできる）
+    target_idx = 0
+    target_prot_seq = [protein_seq_list_all[target_idx]]   # 長さ1のリスト
+    off_pool_seqs = [s for i, s in enumerate(protein_seq_list_all) if i != target_idx]
+
+    # 学習に使うのはオンターゲットの特徴量だけ（GPUメモリ節約）
+    protein_feat_tgt = protein_feat_all[target_idx:target_idx+1].to(device, non_blocking=True)
 
     eos_id = config.rna_vocab["<eos>"]
     pad_id = config.rna_vocab["<pad>"]
@@ -261,26 +272,26 @@ def main():
     for step in tqdm(range(max_steps), desc="Steps"):
         optimizer.zero_grad(set_to_none=True)
 
-        # ========= サンプリング =========
+        # ========= サンプリング（オンターゲット1本だけ）=========
         model.eval()
         sampled = sample_decode_multi_AR(
             model,
-            protein_feat,
+            protein_feat_tgt,          
             max_len=config.max_len,
             num_samples=1,
             top_k=config.top_k,
             temperature=config.temp,
         )
 
-        B = protein_feat.size(0)
+        B = 1                           
         L = config.max_len
         tokens = torch.full((B, L), pad_id, dtype=torch.long, device=device)
-        for i, seq in enumerate(sampled):
-            ln = min(len(seq), L)
-            if ln > 0:
-                tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
-            if ln < L and ln >= config.min_len:
-                tokens[i, ln] = eos_id
+        seq = sampled[0]
+        ln = min(len(seq), L)
+        if ln > 0:
+            tokens[0, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
+        if ln < L and ln >= config.min_len:
+            tokens[0, ln] = eos_id
 
         # ========= logits 用 decoder 入力 =========
         sos_col = torch.full((B, 1), sos_id, dtype=torch.long, device=device)
@@ -288,100 +299,82 @@ def main():
 
         # ========= ログ確率用 logits =========
         model.train()
-        logits = model(protein_feat, tgt_in)
+        logits = model(protein_feat_tgt, tgt_in)
 
         logits = logits.clone()
         logits[..., pad_id] = -1e9
         logits[..., sos_id] = -1e9
         _min_len = min(config.min_len, logits.size(1))
         logits[:, :_min_len, eos_id] = -1e9
-
         if config.temp != 1.0:
             logits = logits / max(config.temp, 1e-6)
 
-        # ========= 3) LucaOne オンターゲット =========
+        # ========= 3) LucaOne オンターゲット（1本）=========
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
+        rna_tgt = rna_strs[0]
+
         with torch.no_grad():
-            R = luca_pool.score_pairs(protein_seq_list, rna_strs, device=device)  # [B]
+            R_t = luca_pool.score_pairs(target_prot_seq, [rna_tgt], device=device)  # shape [1]
+            R_t = R_t.view(-1)[0]  # scalar
 
-        # ========= 3.5) オフターゲット（クロスバッチ平均）=========
-        if B > 1:
-            prot_off, rna_off = [], []
-            for i in range(B):
-                for j in range(B):
-                    if j == i:
-                        continue
-                    prot_off.append(protein_seq_list[j])
-                    rna_off.append(rna_strs[i])
-            with torch.no_grad():
-                scores_off = luca_pool.score_pairs(prot_off, rna_off, device=device)
-            R_off = scores_off.reshape(B, B - 1).mean(dim=1)  # [B]
-        else:
-            R_off = torch.zeros_like(R)
-
-        # ========= 3.6) 有効報酬 (LucaOne 部分) =========
-        R_eff = R - OFFTARGET_LAMBDA * R_off
-
-        # ========= 3.7) RNAfold 構造スコア（標準化）追加 =========
+        # ========= 3.1) オフターゲット（残りから5個を毎回ランダム）=========
+        k = min(OFFTARGET_K, len(off_pool_seqs))
+        off_seqs = rng_off.sample(off_pool_seqs, k=k)
         with torch.no_grad():
-            E = compute_rnafold_energies(rna_strs, device=device)  # [B]
-            lengths = torch.tensor(
-                [max(len(s), 1) for s in rna_strs],
-                dtype=torch.float32,
-                device=device,
-            )
-            S_raw = -E / lengths  # 1塩基あたりの安定性（大きいほど安定）
-            S_mean = S_raw.mean()
-            S_std = S_raw.std(unbiased=False).clamp_min(1e-6)
-            S_norm = (S_raw - S_mean) / S_std  # バッチ内で標準化
+            scores_off = luca_pool.score_pairs(off_seqs, [rna_tgt] * k, device=device)  # [k]
+            R_off = scores_off.mean() if k > 0 else torch.tensor(0.0, device=device)
 
-        # LucaOne + 構造スコア
-        R_total = R_eff + STRUCT_LAMBDA * S_norm  # [B]
+        # ========= 3.2) LucaOne 有効報酬 =========
+        R_eff = R_t - OFFTARGET_LAMBDA * R_off
+
+        # ========= 3.3) RNAfold 構造スコア（生）=========
+        with torch.no_grad():
+            E = compute_rnafold_energies([rna_tgt], device=device).view(-1)[0]  # scalar
+            length = float(max(len(rna_tgt), 1))
+            S_raw = (-E) / length     # scalar（大きいほど安定）
+
+        # 最終報酬（スカラー）
+        R_total = R_eff + STRUCT_LAMBDA * S_raw
 
         # ========= 4) logp（<eos>まで平均）=========
-        logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)
+        logp_batch = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)  # shape [1]
+        logp = logp_batch.view(-1)[0]  # scalar
 
-        # ========= 4.5) エントロピー（<eos>まで平均）=========
-        logp_all = logits.log_softmax(-1)          # [B, L, V]
-        probs = logp_all.exp()                     # [B, L, V]
-        tok_entropy = -(probs * logp_all).sum(dim=-1)  # [B, L]
+        # ========= 4.1) エントロピー（<eos>まで平均）=========
+        logp_all = logits.log_softmax(-1)          # [1, L, V]
+        probs = logp_all.exp()
+        tok_entropy = -(probs * logp_all).sum(dim=-1)  # [1, L]
 
         not_pad = (tokens != pad_id)
         eos_mask = (tokens == eos_id)
         csum = eos_mask.int().cumsum(dim=1)
         before_eos = (csum == 0)
         first_eos = eos_mask & (csum == 1)
-        include = (before_eos | first_eos) & not_pad  # [B, L]
+        include = (before_eos | first_eos) & not_pad
 
         include_f = include.float()
-        den_ent = include_f.sum(dim=-1).clamp_min(1.0)          # [B]
-        entropy_batch = (tok_entropy * include_f).sum(dim=-1) / den_ent  # [B]
-        entropy_mean = entropy_batch.mean()
+        den_ent = include_f.sum(dim=-1).clamp_min(1.0)
+        entropy = ((tok_entropy * include_f).sum(dim=-1) / den_ent).view(-1)[0]  # scalar
 
-        # ========= 5) REINFORCE損失 (RNAfold を含む最終報酬) =========
+        # ========= 5) REINFORCE損失（オンターゲット1本）=========
         with torch.no_grad():
-            R_mean = R_total.mean()
-            baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_mean
+            baseline_mean = baseline_alpha * baseline_mean + (1 - baseline_alpha) * R_total
         advantage = (R_total - baseline_mean).detach()
-        loss = -(advantage * logp_batch).mean()
 
-        loss = loss - entropy_bonus * entropy_mean
-
-        # 逆伝播＆更新
+        loss = -(advantage * logp) - entropy_bonus * entropy
         loss.backward()
         clip_grad_norm_(model.parameters(), grad_clip_norm)
         optimizer.step()
 
-        # ====== ログ ======
-        loss_val = float(loss.detach().cpu())
-        R_mean_val = float(R.mean().detach().cpu())
-        Roff_mean_val = float(R_off.mean().detach().cpu())
-        Reff_mean_val = float(R_eff.mean().detach().cpu())
-        base_val = float(baseline_mean.detach().cpu())
+        # ====== ログ（オンターゲットのみ）======
         print(
-            f"[step] step={step:06d} loss={loss_val:.5f} R={R_mean_val:.5f} "
-            f"Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} baseline={base_val:.5f}",
-            f"RNAs={'|'.join(rna_strs)}",
+            f"[step] step={step:06d} loss={float(loss.detach().cpu()):.5f} "
+            f"R={float(R_t.detach().cpu()):.5f} "
+            f"Roff={float(R_off.detach().cpu()):.5f} "
+            f"Reff={float(R_eff.detach().cpu()):.5f} "
+            f"Sraw={float(S_raw):.5f} "
+            f"baseline={float(baseline_mean.detach().cpu()):.5f} "
+            f"RNA={rna_tgt}",
             flush=True,
         )
 
@@ -392,7 +385,6 @@ def main():
     )
     print(f"[save] Final weights saved to: {output_path}", flush=True)
 
-    # プール終了
     luca_pool.close()
 
 
