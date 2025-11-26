@@ -42,7 +42,8 @@ def id_from_file_name(fn):
     """例: RNCMPT00001_RNCMPT.pkl -> RNCMPT00001"""
     base = os.path.basename(fn)
     root, _ = os.path.splitext(base)
-    return root.split("_", 1)[0]
+    #return root.split("_", 1)[0]
+    return root
 
 def main():
     parser = argparse.ArgumentParser(

@@ -160,7 +160,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_1.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_4.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -180,7 +180,7 @@ def main():
     entropy_bonus = 0.01
     seed = 42
     OFFTARGET_LAMBDA = 1
-    STRUCT_LAMBDA = 1                  # RNAfold 構造スコアの重み
+    STRUCT_LAMBDA = 0.5                  # RNAfold 構造スコアの重み
     OFFTARGET_K = 5                     
 
     # オフターゲット抽出用の乱数（他のrandomと干渉しない）
@@ -257,7 +257,6 @@ def main():
     single_batch = next(iter(train_loader))
     protein_feat_all, _, protein_seq_list_all = single_batch
 
-    # ★ オンターゲットを1つ固定（ここでは先頭を固定。必要ならランダム固定にもできる）
     target_idx = 0
     target_prot_seq = [protein_seq_list_all[target_idx]]   # 長さ1のリスト
     off_pool_seqs = [s for i, s in enumerate(protein_seq_list_all) if i != target_idx]
