@@ -363,7 +363,7 @@ def main():
             f"Reff={float(Reff.detach().cpu()):.5f} "
             f"Rlen={float(R_len.detach().cpu()):.5f} "
             f"baseline={float(baseline_mean.detach().cpu()):.5f} "
-            f"TGT={tgt_on}",
+            f"TGT={rna_gen}",
             flush=True,
         )
 
