@@ -180,8 +180,9 @@ def main():
     entropy_bonus = 0.01
     seed = 42
     OFFTARGET_LAMBDA = 1
-    STRUCT_LAMBDA = 0.5                  # RNAfold 構造スコアの重み
-    OFFTARGET_K = 5                     
+    STRUCT_LAMBDA = 1                  # RNAfold 構造スコアの重み
+    OFFTARGET_K = 5
+    S_SIGMA = 0.15                     
 
     # オフターゲット抽出用の乱数（他のrandomと干渉しない）
     rng_off = random.Random(seed + 123)
@@ -231,7 +232,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
     # --- LucaOne 共通引数（プールへ渡す） ---
-    common_kwargs = dict(
+    '''common_kwargs = dict(
         model_path="LucaOneTasks/",
         llm_truncation_seq_length=100,
         dataset_name="ncRPI",
@@ -251,7 +252,7 @@ def main():
     )
 
     # --- 報酬プール初期化 ---
-    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
+    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)'''
 
     # DataLoader から最初の1バッチだけ取得（16個のプール）
     single_batch = next(iter(train_loader))
@@ -312,7 +313,7 @@ def main():
         rna_strs = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
         rna_tgt = rna_strs[0]
 
-        with torch.no_grad():
+        '''with torch.no_grad():
             R_t = luca_pool.score_pairs(target_prot_seq, [rna_tgt], device=device)  # shape [1]
             R_t = R_t.view(-1)[0]  # scalar
 
@@ -324,13 +325,15 @@ def main():
             R_off = scores_off.mean() if k > 0 else torch.tensor(0.0, device=device)
 
         # ========= 3.2) LucaOne 有効報酬 =========
-        R_eff = R_t - OFFTARGET_LAMBDA * R_off
+        R_eff = R_t - OFFTARGET_LAMBDA * R_off'''
+        R_eff=0.0
 
         # ========= 3.3) RNAfold 構造スコア（生）=========
         with torch.no_grad():
             E = compute_rnafold_energies([rna_tgt], device=device).view(-1)[0]  # scalar
             length = float(max(len(rna_tgt), 1))
-            S_raw = (-E) / length     # scalar（大きいほど安定）
+            S_norm = (-E) / length     
+            S_raw  = torch.exp(-0.5 * ((S_norm - 0.5) / S_SIGMA) ** 2)
 
         # 最終報酬（スカラー）
         R_total = R_eff + STRUCT_LAMBDA * S_raw
@@ -366,7 +369,7 @@ def main():
         optimizer.step()
 
         # ====== ログ（オンターゲットのみ）======
-        print(
+        '''print(
             f"[step] step={step:06d} loss={float(loss.detach().cpu()):.5f} "
             f"R={float(R_t.detach().cpu()):.5f} "
             f"Roff={float(R_off.detach().cpu()):.5f} "
@@ -375,16 +378,25 @@ def main():
             f"baseline={float(baseline_mean.detach().cpu()):.5f} "
             f"RNA={rna_tgt}",
             flush=True,
+        )'''
+        print(
+            f"[step] step={step:06d} loss={float(loss.detach().cpu()):.5f} "
+            f"E={float(E):.3f} "
+            f"Sraw={float(S_raw):.5f} "
+            f"Snorm={float(S_norm):.5f} "
+            f"baseline={float(baseline_mean.detach().cpu()):.5f} "
+            f"RNA={rna_tgt}",
+            flush=True,
         )
 
     # 保存
-    torch.save(
+    '''torch.save(
         model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict(),
         output_path,
     )
     print(f"[save] Final weights saved to: {output_path}", flush=True)
 
-    luca_pool.close()
+    luca_pool.close()'''
 
 
 if __name__ == "__main__":

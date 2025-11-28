@@ -142,7 +142,7 @@ def main():
     csv_path = "ppi3d.csv"
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_3.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_8.pt"
 
     # --- GPU割り当て ---
     device_ids = [0]
@@ -166,13 +166,8 @@ def main():
     OFFTARGET_K = 5
 
     LENGTH_TARGET = 30
-    LENGTH_DIFF_MAX = float(
-        max(
-            abs(config.min_len - LENGTH_TARGET),
-            abs(config.max_len - LENGTH_TARGET)
-        )
-    )
     LENGTH_LAMBDA = 1.0
+    LENGTH_SIGMA = 10.0
 
     rng_off = random.Random(seed + 123)
     random.seed(seed)
@@ -220,7 +215,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
     # --- LucaOne 共通引数（プールへ渡す） ---
-    common_kwargs = dict(
+    '''common_kwargs = dict(
         model_path="LucaOneTasks/",
         llm_truncation_seq_length=100,
         dataset_name="ncRPI",
@@ -239,7 +234,7 @@ def main():
         matrix_embedding_exists=False,
     )
 
-    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
+    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)'''
 
     # ===== 固定プールを1回だけ作る（16本）=====
     single_batch = next(iter(train_loader))
@@ -306,7 +301,7 @@ def main():
         rna_gen = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)[0]
 
         # ========= 5) 報酬　=========
-        with torch.no_grad():
+        '''with torch.no_grad():
             Ron = luca_pool.score_pairs(target_prot_seq, [rna_gen], device=device).view(-1)[0]
 
             k = min(OFFTARGET_K, len(off_pool_seqs))
@@ -317,13 +312,13 @@ def main():
             else:
                 Roff = torch.tensor(0.0, device=device)
 
-        Reff = Ron - OFFTARGET_LAMBDA * Roff
+        Reff = Ron - OFFTARGET_LAMBDA * Roff'''
+        Reff=0
 
         # ========= 5) 長さのペナルティ　=========
         length = float(len(rna_gen))
-        r_len = 1.0 - (abs(length - float(LENGTH_TARGET)) / max(LENGTH_DIFF_MAX, 1.0))
-        r_len = max(0.0, min(1.0, r_len))
-        R_len = torch.tensor(r_len, dtype=torch.float32, device=device)
+        R_len = torch.tensor(length, dtype=torch.float32, device=device)
+        R_len = torch.exp(-0.5 * ((R_len - float(LENGTH_TARGET)) / float(LENGTH_SIGMA)) ** 2)
 
         R_total = Reff + LENGTH_LAMBDA * R_len  
 
@@ -358,6 +353,15 @@ def main():
         print(
             f"[step] step={step:06d} "
             f"loss={float(loss.detach().cpu()):.5f} "
+            f"Rlen={float(R_len.detach().cpu()):.5f} "
+            f"len={int(length)} "
+            f"baseline={float(baseline_mean.detach().cpu()):.5f} "
+            f"TGT={rna_gen}",
+            flush=True,
+        )
+        '''print(
+            f"[step] step={step:06d} "
+            f"loss={float(loss.detach().cpu()):.5f} "
             f"Ron={float(Ron.detach().cpu()):.5f} "
             f"Roff={float(Roff.detach().cpu()):.5f} "
             f"Reff={float(Reff.detach().cpu()):.5f} "
@@ -374,7 +378,7 @@ def main():
     )
     print(f"[save] Final weights saved to: {output_path}", flush=True)
 
-    luca_pool.close()
+    luca_pool.close()'''
 
 
 if __name__ == "__main__":

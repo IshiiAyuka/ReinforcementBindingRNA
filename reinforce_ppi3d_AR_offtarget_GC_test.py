@@ -180,9 +180,8 @@ def main():
     OFFTARGET_K = 5
 
     # ===== ここが「長さ報酬」→「GC報酬」に置換された部分 =====
-    GC_LOW = 0.40
-    GC_HIGH = 0.80
-    GC_LAMBDA = 0.2
+    GC_TARGET = 0.6
+    GC_LAMBDA = 1
 
     rng_off = random.Random(seed + 123)
     random.seed(seed)
@@ -230,7 +229,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
     # --- LucaOne 共通引数（プールへ渡す） ---
-    common_kwargs = dict(
+    '''common_kwargs = dict(
         model_path="LucaOneTasks/",
         llm_truncation_seq_length=100,
         dataset_name="ncRPI",
@@ -249,7 +248,7 @@ def main():
         matrix_embedding_exists=False,
     )
 
-    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
+    luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)'''
 
     # ===== 固定プールを1回だけ作る（16本）=====
     single_batch = next(iter(train_loader))
@@ -316,7 +315,7 @@ def main():
         rna_gen = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)[0]
 
         # ========= 5) 報酬　=========
-        with torch.no_grad():
+        '''with torch.no_grad():
             Ron = luca_pool.score_pairs(target_prot_seq, [rna_gen], device=device).view(-1)[0]
 
             k = min(OFFTARGET_K, len(off_pool_seqs))
@@ -327,13 +326,13 @@ def main():
             else:
                 Roff = torch.tensor(0.0, device=device)
 
-        Reff = Ron - OFFTARGET_LAMBDA * Roff
+        Reff = Ron - OFFTARGET_LAMBDA * Roff'''
+        Reff = 0
 
         # ========= 5) GC含量の報酬（ここが差し替え箇所）=========
         gc = compute_gc_fraction(rna_gen)
         gc_t = torch.tensor(gc, dtype=torch.float32, device=device)
-        ok = (gc_t >= GC_LOW) & (gc_t <= GC_HIGH)
-        R_gc = torch.where(ok, torch.tensor(1.0, device=device), torch.tensor(-1.0, device=device))
+        R_gc = torch.exp(-0.5 * ((gc_t - GC_TARGET) / 0.1) ** 2)
 
         R_total = Reff + GC_LAMBDA * R_gc
 
@@ -368,24 +367,33 @@ def main():
         print(
             f"[step] step={step:06d} "
             f"loss={float(loss.detach().cpu()):.5f} "
+            f"Rgc={float(R_gc.detach().cpu()):.5f} "
+            f"GC={float(gc_t.detach().cpu()):.3f} "
+            f"baseline={float(baseline_mean.detach().cpu()):.5f} "
+            f"TGT={rna_gen}",
+            flush=True,
+        )
+        '''print(
+            f"[step] step={step:06d} "
+            f"loss={float(loss.detach().cpu()):.5f} "
             f"Ron={float(Ron.detach().cpu()):.5f} "
             f"Roff={float(Roff.detach().cpu()):.5f} "
             f"Reff={float(Reff.detach().cpu()):.5f} "
             f"Rgc={float(R_gc.detach().cpu()):+.1f} "
             f"GC={float(gc_t.detach().cpu()):.3f} "
             f"baseline={float(baseline_mean.detach().cpu()):.5f} "
-            f"TGT={tgt_on}",
+            f"TGT={rna_gen}",
             flush=True,
-        )
+        )'''
 
     # 保存
-    torch.save(
+    '''torch.save(
         model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict(),
         output_path,
     )
     print(f"[save] Final weights saved to: {output_path}", flush=True)
 
-    luca_pool.close()
+    luca_pool.close()'''
 
 
 if __name__ == "__main__":
