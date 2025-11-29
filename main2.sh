@@ -10,4 +10,10 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u reinforce_swissprot_AR_offtarget.py > output_1128_1.log 2> error_1128_1.log &
+nohup python -u RNAkiridashi.py \
+  --in_csv ppi3d_1128.csv --out_csv ppi3d_1128_.csv \
+  --max_len 100 --cutoff 4.5 \
+  --cache_dir pdb_cache \
+  --max_workers 8 --chunksize 5 \
+  > output.log \
+  2> error.log &

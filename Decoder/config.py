@@ -2,7 +2,7 @@ import torch
 
 # --- データパス設定 ---
 protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_3D.pt"
-csv_path = "ppi3d.csv"
+csv_path = "ppi3d_1128_.csv"
 
 # --- RNA辞書設定 ---
 #逐次生成
@@ -31,5 +31,5 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # --- 保存先設定 ---
-save_model = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_test.pt"
-save_lossplot = "loss_plot_1123_test.png"
+save_model = "/home/slab/ishiiayuka/M2/Decoder/t30_150M_decoder_AR_1129.pt"
+save_lossplot = "loss_plot_1129.png"

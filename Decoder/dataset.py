@@ -2,8 +2,8 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
-import Decoder.config as config
-#import config 
+#import Decoder.config as config
+import config 
 
 class RNADataset_AR(Dataset):
     def __init__(self, protein_feat_file, csv_path, allowed_ids=None):
@@ -309,46 +309,82 @@ def collate_rl(batch):
     )
     return feats, None, list(prot_seqs)
 
-class RNADataset_decodertrain(Dataset):
-    def __init__(self, protein_feat_file, csv_path, allowed_ids=None):
-        full_feats_dict = torch.load(protein_feat_file)  # 例: {"2zni_A": tensor(...), ...}
-        self.data = []
-        #self.ids = []
+# ===== ここから追記 =====
+from torch.utils.data import Dataset
+import torch
 
-        df = pd.read_csv(csv_path, low_memory=False)
 
-        for _, row in df.iterrows():
-            chain_id = str(row["subunit_1"]).strip() 
-            uid = f"{chain_id}"
-            rna_seq = str(row["s2_sequence"]).strip().upper()
-            #DeepCLIPのときは以下を削除
-            prot_seq = str(row["s1_sequence"]).strip().upper()
-
-            if allowed_ids is not None and uid not in allowed_ids:
+def read_fasta_ids_and_seqs(fasta_path: str):
+    ids, seqs = [], []
+    cur_id, buf = None, []
+    with open(fasta_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
                 continue
-            if not (len(rna_seq) <= 502):
-                continue
-            if rna_seq == "NAN":
-                continue
-            if uid not in full_feats_dict:
-                continue
+            if line.startswith(">"):
+                if cur_id is not None:
+                    ids.append(cur_id)
+                    seqs.append("".join(buf).replace(" ", "").upper())
+                header = line[1:].strip()
+                parts = header.split("|")
+                cur_id = parts[1] if len(parts) >= 2 and parts[0] in ("sp", "tr") else header.split()[0]
+                buf = []
+            else:
+                buf.append(line)
+    if cur_id is not None:
+        ids.append(cur_id)
+        seqs.append("".join(buf).replace(" ", "").upper())
+    return ids, seqs
 
-            protein_feat = full_feats_dict[uid]
 
-            tgt = torch.tensor([config.rna_vocab_NAR["<sos>"]] + [config.rna_vocab_NAR[c] for c in rna_seq] + [config.rna_vocab_NAR["<eos>"]], dtype=torch.long)
-            self.data.append((protein_feat, tgt, prot_seq))
+class ProteinFeatFastaDictDataset(Dataset):
+    """
+    .pt が dict: {protein_id: featTensor} のときのDataset
+    featTensor は [S,D] or [1,S,D] or [D] を許容
+    """
+    def __init__(self, protein_feat_pt_path: str, fasta_path: str):
+        obj = torch.load(protein_feat_pt_path, map_location="cpu")
+        if not isinstance(obj, dict):
+            raise TypeError(f".ptの中身がdictではありません: {type(obj)}")
+        self.feat_dict = obj
+        self.ids, self.seqs = read_fasta_ids_and_seqs(fasta_path)
+
+        # 存在チェック（最初の数件だけでもOKだが、ここでは全件チェック）
+        missing = [pid for pid in self.ids if pid not in self.feat_dict]
+        if len(missing) > 0:
+            # よくあるsp|acc|name問題の可能性があるので、例を出す
+            example_keys = list(self.feat_dict.keys())[:5]
+            raise KeyError(f"FASTA IDが.ptに見つかりません（例: {missing[:5]}）。ptキー例: {example_keys}")
 
     def __len__(self):
-        return len(self.data)
+        return len(self.seqs)
 
     def __getitem__(self, idx):
-        #return self.data[idx]
-        #onlypredictのときのみ
-        protein_feat, tgt, prot_seq = self.data[idx]          
-        return protein_feat, tgt, prot_seq
+        pid = self.ids[idx]
+        return pid, self.seqs[idx]
 
-def custom_collate_fn(batch):
-    protein_feats, tgt_seqs, uids = zip(*batch)
-    protein_feats = torch.stack(protein_feats)
-    tgt_seqs = pad_sequence(tgt_seqs, batch_first=True, padding_value=config.rna_vocab_NAR["<pad>"])
-    return protein_feats, tgt_seqs, list(uids)
+
+def custom_collate_fn_feat_fasta_dict(batch, feat_dict: dict):
+    """
+    戻り値は (protein_feat [B,S,D], None, protein_seq_list)
+    """
+    pids = [x[0] for x in batch]
+    protein_seq_list = [x[1] for x in batch]
+
+    feats = []
+    for pid in pids:
+        x = feat_dict[pid]
+        if torch.is_tensor(x):
+            if x.dim() == 3 and x.size(0) == 1:
+                x = x.squeeze(0)
+            elif x.dim() == 1:
+                x = x.unsqueeze(0)
+            elif x.dim() != 2:
+                raise ValueError(f"feat dim must be 1/2/3(1,S,D), got {tuple(x.shape)} for pid={pid}")
+            feats.append(x.to(torch.float32))
+        else:
+            raise TypeError(f"feat_dict[{pid}] is not tensor: {type(x)}")
+
+    protein_feat = pad_sequence(feats, batch_first=True)  # [B,S,D]
+    return protein_feat, None, protein_seq_list

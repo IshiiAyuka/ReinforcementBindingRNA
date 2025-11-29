@@ -8,7 +8,7 @@ from evaluate import evaluate_model_NAR,evaluate_model
 from plots import plot_loss
 import random
 import config
-from predict import show_test_samples_NAR, show_test_samples, sample_decode_multi
+from predict import show_test_samples
 from collections import defaultdict
 import pandas as pd
 
