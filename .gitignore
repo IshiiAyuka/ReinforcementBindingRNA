@@ -45,6 +45,8 @@ Thumbs.db
 
 LucaOneTasks/
 RoseTTAFold2NA/
-ZHMolGraph/
+RNA-BAnG/
 log/
-mmcif_protein_rna
+mmcif_protein_rna/
+ppi3d_pdb_cache/
+pdb_cache/
