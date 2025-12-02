@@ -48,11 +48,11 @@ def extract_features(name, seq):
 
 # === 特徴量抽出実行 ===
 protein_features = {}
-df = pd.read_csv("/home/slab/ishiiayuka/M2/ppi3d.csv"  )
+df = pd.read_csv("/home/slab/ishiiayuka/M2/RNAcompete.csv")
 
 for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"):
-    uid = str(row["subunit_1"]).strip()       # 例: "3af6_A"
-    seq = str(row["s1_sequence"]).strip().upper()
+    uid = str(row["file_name"]).strip()       # 例: "3af6_A"
+    seq = str(row["sequence"]).strip().upper()
 
     if not uid or not seq:
         print(f"Skip（欠損）: uid={uid}, len={len(seq) if seq else 0}")
@@ -62,7 +62,7 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"
         continue
 
     L = len(seq)
-    if L < 10 or L > 1000:
+    if L > 1022:
         print(f"Skip {uid}（長さ{L}）: 配列長が条件外")
         continue
 
@@ -76,10 +76,10 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"
         continue
 
 # 保存
-torch.save(protein_features, "t30_150M_3D.pt")
+torch.save(protein_features, "t30_150M_RNAcompete_3D.pt")
 print("特徴量を保存しました。")
 
-loaded = torch.load("t30_150M_3D.pt", map_location="cpu")
+loaded = torch.load("t30_150M_RNAcompete_3D.pt", map_location="cpu")
 for i, (k, v) in enumerate(loaded.items()):
     print(f"{i+1}. {k}: shape={tuple(v.shape)}")
     if i >= 4:

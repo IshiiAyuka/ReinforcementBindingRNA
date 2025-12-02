@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from dataset import DeepCLIPProteinDataset
+from dataset import RNADataset_deepclip_AR, custom_collate_fn_deepclip_AR
 from decode import sample_decode_multi_AR
 from model import ProteinToRNA
 import config
@@ -9,76 +9,65 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from collections import OrderedDict
 
-CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1117.pt"
-protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_RNAcompete.pt"
+CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1128.pt"
+protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_RNAcompete_3D.pt"
 csv_path = "/home/slab/ishiiayuka/M2/RNAcompete.csv"
-output_path = "/home/slab/ishiiayuka/M2/generated_rna_RNCMPT_t30_150M_AR_1118.csv"
+output_path = "/home/slab/ishiiayuka/M2/generated_rna_RNCMPT_t30_150M_AR_1202.csv"
 num_samples = 100
 
-# ---- state_dict ロード（module. 剥がし + drop_prefixes 対応、簡潔版）----
-def load_checkpoint_flex(model, ckpt_path, device, drop_prefixes=("length_head.", "query_embed")):
-    raw = torch.load(ckpt_path, map_location=device)
-    sd = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
-    if all(isinstance(k, str) and k.startswith("module.") for k in sd.keys()):
-        sd = OrderedDict((k[len("module."):], v) for k, v in sd.items())
-    if drop_prefixes:
-        sd = OrderedDict((k, v) for k, v in sd.items() if not any(k.startswith(p) for p in drop_prefixes))
-    missing, unexpected = model.load_state_dict(sd, strict=False)
-    print(f"[ckpt] missing={len(missing)} unexpected={len(unexpected)}")
+if __name__ == "__main__":
+    # --- データ準備 ---
 
-# ---- 推論用 collate（feat と id のみ）----
-def deepclip_collate_for_predict(batch):
-    feats = torch.stack([b[0] for b in batch], dim=0)  # [B, D] or [B, S, D]
-    keys  = [b[1] for b in batch]
-    return feats, keys
+    df = pd.read_csv(csv_path, low_memory=False)
 
-# --- 実行部分 ---
-dataset_test = DeepCLIPProteinDataset(feat_pt_path=protein_feat_path, csv_path=csv_path,id_priority=("protein_name", "file_name"))
-print(f"Testデータ数: {len(dataset_test)}")
-test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=deepclip_collate_for_predict)
+    dataset_train = RNADataset_deepclip_AR(protein_feat_path, csv_path)
+    train_loader = DataLoader(dataset_train, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collate_fn_deepclip_AR)
 
-model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers).to(config.device)
-load_checkpoint_flex(model, CKPT_PATH, config.device)   # ← 先にロード
-model = nn.DataParallel(model).to(config.device)
-model.eval()
-print("モデルの重みを読み込みました。")
+    print(f"Trainデータ数: {len(dataset_train)}")
 
-# ---- トークン列 → RNA 文字列（<eos>打切り、<pad>/<sos>/<MASK>除外）----
-def ids_to_clean_rna(seq_ids):
-    out = []
-    for t in seq_ids:  # list / tensor どちらでもOK
-        tid = int(t)
-        if tid == config.rna_vocab["<eos>"]:
-            break
-        if tid in (config.rna_vocab["<pad>"], config.rna_vocab["<sos>"]):
-            continue
-        tok = config.rna_ivocab.get(tid)
-        if tok in ("A", "U", "C", "G"):
-            out.append(tok)
-    return "".join(out)
+    # --- モデル定義 ---
+    model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
+    model = nn.DataParallel(model)
+    model = model.to(config.device)
 
-# --- 生成＆保存 ---
-# 複数配列
-results = []
-with torch.no_grad():
-    for protein_batch, uniprot_ids in tqdm(test_loader, desc="RNA配列生成中"):
-        protein_batch = protein_batch.to(config.device, non_blocking=True)
+    # --- 学習済み重みロード（推論のみ） ---
+    ckpt = torch.load(CKPT_PATH, map_location="cpu")
+    state_dict = ckpt.get("state_dict", ckpt.get("model_state_dict", ckpt))
 
-        seq_ids_batch = sample_decode_multi_AR(
-            model, protein_batch,
-            max_len=config.max_len,
-            num_samples=num_samples,
-            top_k=config.top_k,
-            temperature=1.0
-        )
+    if any(k.startswith("module.") for k in state_dict.keys()):
+        model.load_state_dict(state_dict, strict=True)
+    else:
+        model.module.load_state_dict(state_dict, strict=True)
 
-        for idx, seq_ids in zip(uniprot_ids, seq_ids_batch):
-            short_id = str(idx).split("_", 1)[0]
-            for one in seq_ids:
-                    seq = ids_to_clean_rna(one)
-                    results.append({"id": short_id, "sequence": seq})
+    model.eval()
 
-# --- CSVとして保存（DeepCLIP互換） ---
-df_out = pd.DataFrame(results)
-df_out.to_csv(output_path, index=False)
-print("全候補をcsvファイルに保存しました。")
+    id2tok = {v: k for k, v in config.rna_vocab.items()}
+
+    # --- 生成してCSVへ ---
+    rows = []
+    with torch.inference_mode():
+        for batch in tqdm(train_loader):
+            # custom_collate_fn_deepclip_AR が (protein_batch, prot_seqs, file_names) を返す想定
+            protein_batch, prot_seqs, file_names = batch
+
+            out_all = sample_decode_multi_AR(
+                model,
+                protein_batch,                 # [B, S, D]
+                max_len=config.max_len,
+                num_samples=num_samples,       # 1タンパク質あたり100本
+                top_k=config.top_k,
+                temperature=config.temp,
+            )
+            for i, fn in enumerate(file_names):
+                base_id = str(fn).strip()
+                if base_id.endswith(".pkl"):
+                    base_id = base_id[:-4]  # ".pkl" を除去
+
+                for seq_ids in out_all[i]:
+                    if not seq_ids:
+                        continue
+                    rna_seq = "".join(id2tok[t] for t in seq_ids)
+                    rows.append({"id": base_id, "sequence": rna_seq})
+
+    pd.DataFrame(rows).to_csv(output_path, index=False)
+    print(f"Saved: {output_path} ")

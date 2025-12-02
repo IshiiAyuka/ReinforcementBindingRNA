@@ -2,8 +2,8 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
-import Decoder.config as config
-#import config 
+#import Decoder.config as config
+import config 
 
 class RNADataset_AR(Dataset):
     def __init__(self, protein_feat_file, csv_path, allowed_ids=None):
@@ -29,7 +29,7 @@ class RNADataset_AR(Dataset):
 
             vocab = config.rna_vocab
             try:
-                tok_body = [vocab[c] for c in rna_seq]  # A/U/C/G のみ想定
+                tok_body = [vocab[c] for c in rna_seq]  
             except KeyError:
                 continue
 
@@ -110,7 +110,7 @@ class RNADataset_NAR(Dataset):
         protein_feat, tgt, prot_seq = self.data[idx]          
         return protein_feat, tgt, prot_seq
 
-def custom_collate_fn(batch):
+def custom_collate_fn_NAR(batch):
     """
     NAR（非逐次, 全<MASK>入力）用の最小戻り値版。
     戻り値（3要素）:
@@ -156,162 +156,50 @@ def parse_clstr(clstr_path):
         if current_cluster:
             clusters.append(current_cluster)
     return clusters
-
-class RNAOnlyDataset(Dataset):
-    def __init__(self, protein_feat_path):
-        self.data_dict = torch.load(protein_feat_path)
-        self.keys = list(self.data_dict.keys())
-
-    def __len__(self):
-        return len(self.keys)
-
-    def __getitem__(self, idx):
-        key = self.keys[idx]
-        return self.data_dict[key], key 
     
-# ========= CSV 専用 Dataset と collate =========
-class DeepCLIPProteinDataset(torch.utils.data.Dataset):
-    def __init__(self, feat_pt_path: str, csv_path: str,
-                 id_priority=("protein_name", "file_name"),
-                 encoding: str = None):
-        super().__init__()
-        enc = encoding if encoding is not None else "cp932"
-        self.df = pd.read_csv(csv_path, low_memory=False, encoding=enc)
-        self.feat_dict = torch.load(feat_pt_path, map_location="cpu")
+class RNADataset_deepclip_AR(torch.utils.data.Dataset):
+    def __init__(self, protein_feat_file, csv_path, allowed_ids=None):
+        full_feats_dict = torch.load(protein_feat_file)
+        self.data = []
 
-        self.items = []  # List[Tuple[key(str), prot_seq(str)]]
-        skipped = 0
-        for _, row in self.df.iterrows():
-            fname = str(row.get("file_name", "")).strip()
-            pname = str(row.get("protein_name", "")).strip()
+        df = pd.read_csv(csv_path, low_memory=False)
+        for _, row in df.iterrows():
+            file_name = str(row["file_name"]).strip()
+            prot_seq = str(row["sequence"]).strip().upper()
 
-            parts = [x for x in [fname, pname] if x]
-            key = "_".join(parts) if parts else "unknown"
-
-            # .pt に存在しないキーはスキップ
-            if key not in self.feat_dict:
-                skipped += 1
+            if allowed_ids is not None and file_name not in allowed_ids:
+                continue
+            if prot_seq == "NAN" or prot_seq == "":
+                continue
+            if file_name not in full_feats_dict:
                 continue
 
-            prot_seq = str(row.get("sequence", "")).strip()
-            if not prot_seq:
-                skipped += 1
-                continue
+            protein_feat = torch.as_tensor(full_feats_dict[file_name]).float()
 
-            self.items.append((key, prot_seq))
+            self.data.append((protein_feat, prot_seq, file_name))
 
-        if len(self.items) == 0:
-            raise ValueError("特徴量に一致する行が0件でした。CSVの file_name / protein_name と .pt のキー対応を確認してください。")
-
-        print(f"[DeepCLIPProteinDataset] 有効 {len(self.items)} 件 / スキップ {skipped} 件")
+        print(f"[DeepCLIPProteinDataset] 有効 {len(self.data)} 件")
 
     def __len__(self):
-        return len(self.items)
-
-    def __getitem__(self, idx: int):
-        key, prot_seq = self.items[idx]
-        feat = self.feat_dict[key].float()
-        return feat, key, prot_seq, None, None
-
-class FastaProteinDataset(Dataset):
-    """
-    FASTAと特徴量.pt({acc: Tensor([D]) or Tensor([N,D])})を突き合わせるDataset
-    戻り値: (protein_feat[D], protein_seq:str)
-    """
-    def __init__(self, feat_pt_path: str, fasta_path: str, pool: str = "mean", skip_missing: bool = True):
-        super().__init__()
-        self.items = []
-        self.pool = pool
-
-        feat_dict = torch.load(feat_pt_path, map_location="cpu")  # {acc: Tensor or array}
-        # 期待次元（存在すればチェックする）
-        expected_D = getattr(config, "input_dim", None)
-
-        hit = miss = 0
-        for header, prot_seq in self._iter_fasta(fasta_path):
-            acc = self._acc_from_header(header)
-
-            # --- キーフォールバック（アイソフォームなど） ---
-            feat = self._get_feat_with_fallback(feat_dict, acc)
-
-            if feat is None:
-                miss += 1
-                if skip_missing:
-                    continue
-                raise KeyError(f"Feature not found for accession: {acc}")
-
-            # dtype/shapeを明示して安定化
-            x = torch.as_tensor(feat, dtype=torch.float32)
-            if x.ndim == 2:                          # [N, D] → [D]
-                x = x.mean(dim=0) if self.pool == "mean" else x[0]
-            elif x.ndim != 1:
-                raise ValueError(f"Feature for {acc} must be 1D or 2D, got shape {tuple(x.shape)}")
-
-            # 次元チェック（期待次元がわかる場合のみ）
-            if expected_D is not None and x.numel() != expected_D:
-                raise ValueError(f"Dim mismatch for {acc}: got {x.numel()}, expected {expected_D}")
-
-            self.items.append((x, prot_seq))
-            hit += 1
-
-        print(f"[FastaProteinDataset] matched={hit}, missing_features={miss}")
-
-    def __len__(self):
-        return len(self.items)
+        return len(self.data)
 
     def __getitem__(self, idx):
-        return self.items[idx]  # (feat[D], prot_seq:str)
+        protein_feat, prot_seq, file_name = self.data[idx]
+        return protein_feat, prot_seq, file_name
 
-    # ---- 内部ユーティリティ ----
-    @staticmethod
-    def _acc_from_header(h: str) -> str:
-        """
-        例: '>sp|A0A075QQ08-2|IF4E1_TOBAC ...' → 'A0A075QQ08-2'
-        """
-        h0 = h.strip().split()[0]
-        if h0.startswith('>'):
-            h0 = h0[1:]
-        parts = h0.split('|')
-        return parts[1] if len(parts) >= 2 else parts[0]
+def custom_collate_fn_deepclip_AR(batch):
+    protein_feats, prot_seqs, file_names = zip(*batch)
 
-    @staticmethod
-    def _iter_fasta(path: str):
-        head, seq_parts = None, []
-        with open(path, 'r') as f:
-            for line in f:
-                if line.startswith('>'):
-                    if head is not None:
-                        yield head, ''.join(seq_parts).upper()
-                    head, seq_parts = line[1:].strip(), []
-                else:
-                    s = line.strip()
-                    if s:  # 空行スキップ
-                        seq_parts.append(s)
-        if head is not None:
-            yield head, ''.join(seq_parts).upper()
+    B = len(protein_feats)
+    D = protein_feats[0].size(1)
+    S_max = max(feat.size(0) for feat in protein_feats)
 
-    @staticmethod
-    def _get_feat_with_fallback(feat_dict: dict, acc: str):
-        feat = feat_dict.get(acc)
-        if feat is None and "-" in acc:
-            base = acc.split("-", 1)[0]
-            feat = feat_dict.get(base)
-        return feat
+    protein_batch = torch.zeros(B, S_max, D, dtype=torch.float32)
+    for i, feat in enumerate(protein_feats):
+        S_i = feat.size(0)
+        protein_batch[i, :S_i] = feat
 
-
-def collate_rl(batch):
-    feats, prot_seqs = zip(*batch)  # list[tensor[D]], list[str]
-    feats = torch.stack(
-        [b if isinstance(b, torch.Tensor) and b.dtype == torch.float32
-         else torch.as_tensor(b, dtype=torch.float32)
-         for b in feats],
-        dim=0
-    )
-    return feats, None, list(prot_seqs)
-
-# ===== ここから追記 =====
-from torch.utils.data import Dataset
-import torch
+    return protein_batch, list(prot_seqs), list(file_names)
 
 
 def read_fasta_ids_and_seqs(fasta_path: str):
