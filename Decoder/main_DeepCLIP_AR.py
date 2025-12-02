@@ -9,10 +9,10 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from collections import OrderedDict
 
-CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1128.pt"
+CKPT_PATH = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1129_3.pt"
 protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_RNAcompete_3D.pt"
 csv_path = "/home/slab/ishiiayuka/M2/RNAcompete.csv"
-output_path = "/home/slab/ishiiayuka/M2/generated_rna_RNCMPT_t30_150M_AR_1202.csv"
+output_path = "/home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_RNCMPT_t30_150M_AR_1202_4.csv"
 num_samples = 100
 
 if __name__ == "__main__":
