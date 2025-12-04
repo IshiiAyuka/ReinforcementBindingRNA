@@ -8,15 +8,36 @@ def _ids_to_string(ids):
     sos = config.rna_vocab["<sos>"]
     eos = config.rna_vocab["<eos>"]
     pad = config.rna_vocab["<pad>"]
+
+    # tuple返し (ids, score) みたいなのも吸収
+    if isinstance(ids, tuple):
+        ids = ids[0]
+
+    # TensorならCPUへ、2次元なら先頭系列を取る
+    if torch.is_tensor(ids):
+        ids = ids.detach().cpu()
+        if ids.dim() == 2:
+            ids = ids[0]
+        ids = ids.tolist()
+
+    # list of list なら先頭系列を取る
+    if isinstance(ids, list) and len(ids) > 0 and isinstance(ids[0], list):
+        ids = ids[0]
+
     out = []
     for t in ids:
+        if torch.is_tensor(t):
+            t = int(t.item())
+        else:
+            t = int(t)
+
         if t == eos:
             break
         if t in (sos, pad):
             continue
         out.append(ivocab[t])
     return "".join(out)
-
+    
 def show_test_samples(model, dataset, device):
     model.eval()
     n_show = 5
