@@ -168,38 +168,54 @@ def compute_gc_fraction(seq: str) -> float:
     return gc_count / len(bases)
 
 
-def compute_extra_reward_on_target(rna_list,device,*,mode="rnafold",target=0.5,sigma=0.15):
+def compute_extra_reward_on_target(
+    rna_list,
+    device,
+    *,
+    rnafold_target=0.5,
+    rnafold_sigma=0.15,
+    gc_target=0.5,
+    gc_sigma=0.15,
+    length_target=30,
+    length_sigma=15,
+    weights=None,
+):
+    """
+    追加報酬をRNAfold・GC含量・長さの3項すべてで計算して合算する。
+    weightsで各項の寄与を調整可能（デフォルトは全項1.0）。
+    """
+    weights = weights or {}
+    w_rnafold = float(weights.get("rnafold", 1.0))
+    w_gc = float(weights.get("gc", 1.0))
+    w_length = float(weights.get("length", 1.0))
 
-    # 複数指定にも対応
-    if isinstance(mode, (list, tuple)):
-        total = torch.zeros(k, dtype=torch.float32, device=device)
-        info = {}
-        for m in mode:
-            r, d = compute_extra_reward_on_target(
-                rna_list, device, mode=m, target=target, sigma=sigma
-            )
-            total = total + r
-            info[m] = d
-        return total, info
+    k = len(rna_list)
+    lengths = torch.tensor([len(s) for s in rna_list], dtype=torch.float32, device=device)  # [k]
+    lengths_safe = lengths.clamp_min(1.0)  # RNAfold正規化用
 
-    if mode == "rnafold":
-        E = compute_rnafold_energies(rna_list, device=device)  # [k]
-        lengths = torch.tensor([max(len(s), 1) for s in rna_list],
-                               dtype=torch.float32, device=device)  # [k]
-        S_norm = (-E) / lengths  # [k]
-        S_raw = torch.exp(-0.5 * ((S_norm - float(target)) / float(sigma)) ** 2)  # [k]
-        return S_raw, S_norm
+    # RNAfold
+    E = compute_rnafold_energies(rna_list, device=device)  # [k]
+    rnafold_norm = (-E) / lengths_safe  # [k]
+    rnafold_score = torch.exp(-0.5 * ((rnafold_norm - float(rnafold_target)) / float(rnafold_sigma)) ** 2)  # [k]
 
-    elif mode == "gc":
-        gc_list = [compute_gc_fraction(s) for s in rna_list]
-        gc_t = torch.tensor(gc_list, dtype=torch.float32, device=device)  # [k]
-        R_gc = torch.exp(-0.5 * ((gc_t - float(target)) / float(sigma)) ** 2)  # [k]
-        return R_gc, gc_t
-    
-    elif mode == "length":
-        len_t = torch.tensor([len(s) for s in rna_list], dtype=torch.float32, device=device)  # [k]
-        R_len = torch.exp(-0.5 * ((len_t - float(target)) / float(sigma)) ** 2)  # [k]
-        return R_len, len_t
+    # GC
+    gc_list = [compute_gc_fraction(s) for s in rna_list]
+    gc_t = torch.tensor(gc_list, dtype=torch.float32, device=device)  # [k]
+    gc_score = torch.exp(-0.5 * ((gc_t - float(gc_target)) / float(gc_sigma)) ** 2)  # [k]
+
+    # 長さ
+    length_score = torch.exp(-0.5 * ((lengths - float(length_target)) / float(length_sigma)) ** 2)  # [k]
+
+    total = (w_rnafold * rnafold_score) + (w_gc * gc_score) + (w_length * length_score)  # [k]
+    info = dict(
+        rnafold_score=rnafold_score,
+        rnafold_norm=rnafold_norm,
+        gc_score=gc_score,
+        gc_fraction=gc_t,
+        length_score=length_score,
+        length_raw=lengths,
+    )
+    return total, info
 
 
 # ===========================
@@ -236,11 +252,16 @@ def main():
     reward_k = 2   # バッチからオンターゲットに使う個数
     neg_m = 5      # 各オンターゲットに対するオフターゲット数
 
-    # 追加報酬（RNAfold）設定：ここを差し替えやすいように分離
-    STRUCT_LAMBDA = 1.0
-    STRUCT_MODE = "length"
-    STRUCT_TARGET = 30
-    STRUCT_SIGMA = 15
+    # 追加報酬（RNAfold / GC / Length）：全項を合算
+    RNAFOLD_LAMBDA = 1.0
+    GC_LAMBDA = 1.0
+    LENGTH_LAMBDA = 1.0
+    RNAFOLD_TARGET = 0.5
+    RNAFOLD_SIGMA = 0.15
+    GC_TARGET = 0.6
+    GC_SIGMA = 0.1
+    LENGTH_TARGET = 30
+    LENGTH_SIGMA = 15
 
     random.seed(seed)
     torch.manual_seed(seed)
@@ -394,18 +415,26 @@ def main():
         # LucaOne 有効報酬（k個）
         R_eff_sel = R_sel - OFFTARGET_LAMBDA * R_off_sel  # [k]
 
-        # ========= 追加報酬（RNAfold：オンターゲット rna_sel のみ） =========
+        # ========= 追加報酬（RNAfold / GC / Length：オンターゲット rna_sel のみ） =========
         with torch.no_grad():
-            score, score_raw = compute_extra_reward_on_target(
+            score, score_info = compute_extra_reward_on_target(
                 rna_sel,
                 device=device,
-                mode=STRUCT_MODE,
-                target=STRUCT_TARGET,
-                sigma=STRUCT_SIGMA,
-            )  
+                rnafold_target=RNAFOLD_TARGET,
+                rnafold_sigma=RNAFOLD_SIGMA,
+                gc_target=GC_TARGET,
+                gc_sigma=GC_SIGMA,
+                length_target=LENGTH_TARGET,
+                length_sigma=LENGTH_SIGMA,
+                weights=dict(
+                    rnafold=RNAFOLD_LAMBDA,
+                    gc=GC_LAMBDA,
+                    length=LENGTH_LAMBDA,
+                ),
+            )
 
         # 最終報酬（k個）
-        R_total_sel = R_eff_sel + (STRUCT_LAMBDA * score)  # [k]
+        R_total_sel = R_eff_sel + score  # [k]
 
         # logp（全体→sel）
         logp = logprob_from_logits(logits, tokens, pad_id=pad_id, eos_id=eos_id)  # [B]
@@ -446,13 +475,25 @@ def main():
         Roff_mean_val = float(R_off_sel.mean().detach().cpu())
         Reff_mean_val = float(R_eff_sel.mean().detach().cpu())
         score_mean_val = float(score.mean().detach().cpu())
-        score_raw_mean_val = float(score_raw.mean().detach().cpu())
+        score_comp_mean_val = {
+            "rnafold": float(score_info["rnafold_score"].mean().detach().cpu()),
+            "gc": float(score_info["gc_score"].mean().detach().cpu()),
+            "length": float(score_info["length_score"].mean().detach().cpu()),
+        }
+        score_raw_mean_val = {
+            "rnafold_norm": float(score_info["rnafold_norm"].mean().detach().cpu()),
+            "gc_fraction": float(score_info["gc_fraction"].mean().detach().cpu()),
+            "length": float(score_info["length_raw"].mean().detach().cpu()),
+        }
         base_val = float(baseline_mean.detach().cpu())
 
         print(
             f"[step] step={step:06d} loss={loss_val:.5f} "
             f"R={R_mean_val:.5f} Roff={Roff_mean_val:.5f} Reff={Reff_mean_val:.5f} "
-            f"score={score_mean_val:.5f} score_raw={score_raw_mean_val:.5f} baseline={base_val:.5f} "
+            f"score={score_mean_val:.5f} "
+            f"score_comp=[rnafold={score_comp_mean_val['rnafold']:.5f} gc={score_comp_mean_val['gc']:.5f} len={score_comp_mean_val['length']:.5f}] "
+            f"score_raw=[rnafold_norm={score_raw_mean_val['rnafold_norm']:.5f} gc_frac={score_raw_mean_val['gc_fraction']:.5f} len={score_raw_mean_val['length']:.5f}] "
+            f"baseline={base_val:.5f} "
             f"RNAs={'|'.join(rna_sel)}",
             flush=True,
         )
