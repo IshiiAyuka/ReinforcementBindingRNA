@@ -130,7 +130,10 @@ def tokens_to_strings(tokens, ivocab, eos_id, pad_id, sos_id):
 # ===========================
 #  RNAfold
 # ===========================
-def compute_rnafold_energies(rna_strs, device):
+def compute_rnafold_energies(rna_strs, device, energy_type: str = "ensemble"):
+    """
+    energy_type: "ensemble" または "mfe"
+    """
 
     energies = [0.0] * len(rna_strs)
 
@@ -167,10 +170,18 @@ def compute_rnafold_energies(rna_strs, device):
 
     # 見つかったものを順番に割り当て、足りなければMFEを代用
     for rank, (idx, _) in enumerate(non_empty):
-        if rank < len(ensemble_vals):
-            energies[idx] = ensemble_vals[rank]
-        elif rank < len(mfe_vals):
-            energies[idx] = mfe_vals[rank]
+        if energy_type == "mfe":
+            # MFE優先、なければアンサンブルをフォールバック
+            if rank < len(mfe_vals):
+                energies[idx] = mfe_vals[rank]
+            elif rank < len(ensemble_vals):
+                energies[idx] = ensemble_vals[rank]
+        else:
+            # アンサンブル優先、なければMFEをフォールバック
+            if rank < len(ensemble_vals):
+                energies[idx] = ensemble_vals[rank]
+            elif rank < len(mfe_vals):
+                energies[idx] = mfe_vals[rank]
 
     return torch.tensor(energies, dtype=torch.float32, device=device)
 
@@ -192,6 +203,7 @@ def compute_extra_reward_on_target(
     *,
     rnafold_target=0.5,
     rnafold_sigma=0.15,
+    rnafold_energy_type="ensemble",
     gc_target=0.5,
     gc_sigma=0.15,
     length_target=30,
@@ -212,7 +224,7 @@ def compute_extra_reward_on_target(
     lengths_safe = lengths.clamp_min(1.0)  # RNAfold正規化用
 
     # RNAfold
-    E = compute_rnafold_energies(rna_list, device=device)  # [k]
+    E = compute_rnafold_energies(rna_list, device=device, energy_type=rnafold_energy_type)  # [k]
     rnafold_norm = (-E) / lengths_safe  # [k]
     rnafold_score = torch.exp(-0.5 * ((rnafold_norm - float(rnafold_target)) / float(rnafold_sigma)) ** 2)  # [k]
 
@@ -242,7 +254,7 @@ def compute_extra_reward_on_target(
 def main():
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_swissprot_RBP_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1205.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1206.pt"
 
     fasta_path = "/home/slab/ishiiayuka/M2/swissprot_RBP.fasta"
 
@@ -274,6 +286,7 @@ def main():
     RNAFOLD_LAMBDA = 1.0
     GC_LAMBDA = 1.0
     LENGTH_LAMBDA = 1.0
+    RNAFOLD_ENERGY_TYPE = "mfe"  # "ensemble" or "mfe"
     RNAFOLD_TARGET = 0.25
     RNAFOLD_SIGMA = 0.1
     GC_TARGET = 0.55
@@ -440,6 +453,7 @@ def main():
                 device=device,
                 rnafold_target=RNAFOLD_TARGET,
                 rnafold_sigma=RNAFOLD_SIGMA,
+                rnafold_energy_type=RNAFOLD_ENERGY_TYPE,
                 gc_target=GC_TARGET,
                 gc_sigma=GC_SIGMA,
                 length_target=LENGTH_TARGET,
