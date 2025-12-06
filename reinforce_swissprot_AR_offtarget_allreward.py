@@ -140,19 +140,37 @@ def compute_rnafold_energies(rna_strs, device):
 
     seqs = [s for _, s in non_empty]
     proc = subprocess.run(
-        ["RNAfold", "--noPS"],
+        ["RNAfold", "-p", "--noPS"],
         input="\n".join(seqs) + "\n",
         text=True,
         capture_output=True,
         check=True,
     )
 
-    lines = proc.stdout.strip().splitlines()
-    for k, (idx, _) in enumerate(non_empty):
-        struct_line = lines[2 * k + 1]
-        m = re.search(r"\(\s*([-+]?\d+(?:\.\d+)?)\s*\)\s*$", struct_line)
-        if m:
-            energies[idx] = float(m.group(1))
+    # stdoutとstderrをまとめてパースする（環境によって出力先が異なるため）
+    out_text = proc.stdout
+    if proc.stderr:
+        out_text += "\n" + proc.stderr
+
+    lines = out_text.strip().splitlines()
+
+    # アンサンブル自由エネルギーを出現順に収集
+    ensemble_vals = []
+    mfe_vals = []  # フォールバック用（最小自由エネルギー）
+    for ln in lines:
+        m_ensemble = re.search(r"free energy of ensemble\s*=\s*([-+]?\d+(?:\.\d+)?)", ln)
+        if m_ensemble:
+            ensemble_vals.append(float(m_ensemble.group(1)))
+        m_mfe = re.search(r"\(\s*([-+]?\d+(?:\.\d+)?)\s*\)", ln)
+        if m_mfe:
+            mfe_vals.append(float(m_mfe.group(1)))
+
+    # 見つかったものを順番に割り当て、足りなければMFEを代用
+    for rank, (idx, _) in enumerate(non_empty):
+        if rank < len(ensemble_vals):
+            energies[idx] = ensemble_vals[rank]
+        elif rank < len(mfe_vals):
+            energies[idx] = mfe_vals[rank]
 
     return torch.tensor(energies, dtype=torch.float32, device=device)
 
@@ -224,7 +242,7 @@ def compute_extra_reward_on_target(
 def main():
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_swissprot_RBP_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1204.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1205.pt"
 
     fasta_path = "/home/slab/ishiiayuka/M2/swissprot_RBP.fasta"
 
@@ -256,12 +274,12 @@ def main():
     RNAFOLD_LAMBDA = 1.0
     GC_LAMBDA = 1.0
     LENGTH_LAMBDA = 1.0
-    RNAFOLD_TARGET = 0.5
-    RNAFOLD_SIGMA = 0.15
-    GC_TARGET = 0.6
-    GC_SIGMA = 0.1
-    LENGTH_TARGET = 30
-    LENGTH_SIGMA = 15
+    RNAFOLD_TARGET = 0.25
+    RNAFOLD_SIGMA = 0.1
+    GC_TARGET = 0.55
+    GC_SIGMA = 0.075
+    LENGTH_TARGET = 70
+    LENGTH_SIGMA = 30
 
     random.seed(seed)
     torch.manual_seed(seed)

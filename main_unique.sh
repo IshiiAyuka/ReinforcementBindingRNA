@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u unique_sequence.py > output_length.log 2> error_length.log &
+nohup python -u compute_rnafold_stats.py > output_stats.log 2> error_stats.log &
