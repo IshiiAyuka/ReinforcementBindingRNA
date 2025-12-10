@@ -158,7 +158,7 @@ def compute_rnafold_energies(rna_strs, device):
 # ===========================
 def main():
     csv_path = "ppi3d.csv"
-    weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
+    weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_3D.pt"
     output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_test_1126_4.pt"
 
