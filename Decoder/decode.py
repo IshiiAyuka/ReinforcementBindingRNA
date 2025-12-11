@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-#import Decoder.config as config
-import config 
+import Decoder.config as config
+#import config 
 
 @torch.no_grad()
 def greedy_decode(model, protein_feat):

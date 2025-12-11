@@ -206,7 +206,7 @@ def compute_extra_reward_on_target(rna_list,device,*,mode="rnafold",target=0.5,s
 #  メイン
 # ===========================
 def main():
-    weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1123.pt"
+    weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_swissprot_RBP_3D.pt"
     output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1129_3.pt"
 

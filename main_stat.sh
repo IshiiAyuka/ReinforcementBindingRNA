@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u GC_Length_stat.py > output_1209.log 2> error_1209.log &
+nohup python -u compute_rnafold_stats.py > output_1210.log 2> error_1210.log &

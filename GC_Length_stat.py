@@ -28,13 +28,13 @@ with csv_path.open() as f:
         m2_len += delta_len * (length - mean_len)
 
 if n < 2:
-    var_gc = var_len = 0.0
+    std_gc = std_len = 0.0
 else:
-    var_gc = m2_gc / (n - 1)
-    var_len = m2_len / (n - 1)
+    std_gc = (m2_gc / (n - 1)) ** 0.5
+    std_len = (m2_len / (n - 1)) ** 0.5
 
 print(f"Total sequences: {n}")
 print(f"GC content mean: {mean_gc:.6f}")
-print(f"GC content variance: {var_gc:.6f}")
+print(f"GC content std dev: {std_gc:.6f}")
 print(f"Sequence length mean: {mean_len:.2f}")
-print(f"Sequence length variance: {var_len:.2f}")
+print(f"Sequence length std dev: {std_len:.2f}")
