@@ -6,8 +6,8 @@ cd /home/slab/ishiiayuka/M2/deepclip
 
 nohup python -u Mydeepclip_multiple.py \
     -u RNAcompete.csv \
-    -g /home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_1212_EFE.csv \
+    -g /home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_1212_Random.csv \
     -w models/RNCMPT \
     --thr 0.75 \
-    > output_1212_EFE.log \
-    2> error_1212_EFE.log & 
+    > output_1212_Random.log \
+    2> error_1212_Random.log & 
