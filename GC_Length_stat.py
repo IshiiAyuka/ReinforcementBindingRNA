@@ -1,7 +1,7 @@
 from pathlib import Path
 import csv
 
-csv_path = Path("/home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_RNCMPT_t30_150M_AR_1206.csv")
+csv_path = Path("/home/slab/ishiiayuka/M2/random_rna.csv")
 
 n = 0
 mean_gc = m2_gc = 0.0
