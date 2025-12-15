@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u reinforce_swissprot_AR_offtarget_allreward.py > output_1212.log 2> error_1212.log &
+nohup python -u reinforce_swissprot_AR_offtarget_allreward.py > output_1215_2.log 2> error_1215_2.log &
