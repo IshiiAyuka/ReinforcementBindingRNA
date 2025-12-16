@@ -54,10 +54,10 @@ def load_rows(csv_path: str) -> Tuple[List[dict], List[str]]:
     sequences: List[str] = []
     with open(csv_path, newline="") as f:
         reader = csv.DictReader(f)
-        if "Sequence" not in reader.fieldnames:
+        if "sequence" not in reader.fieldnames:
             raise KeyError("Sequence column not found in CSV header")
         for row in reader:
-            seq = (row.get("Sequence") or "").strip()
+            seq = (row.get("sequence") or "").strip()
             rows.append(row)
             if seq:
                 sequences.append(seq)
@@ -79,12 +79,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--csv",
-        default="/home/slab/ishiiayuka/M2/random_rna.csv",
+        default="/home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_1212_DecoderOnly.csv",
         help="Path to input CSV containing a Sequence column (default: aptamer.csv)",
     )
     parser.add_argument(
         "--out",
-        default="random_with_energy.csv",
+        default="DecoderOnly_result.csv",
         help="Path to write CSV with added MFE and EnsembleEnergy columns (default: aptamer_with_energy.csv)",
     )
     args = parser.parse_args()

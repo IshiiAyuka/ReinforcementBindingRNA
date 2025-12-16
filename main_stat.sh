@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u RNAfold_stat.py > output_1211.log 2> error_1211.log &
+nohup python -u RNAfold_stat.py > output_RNAfoldstat.log 2> error_RNAfoldstat.log &
