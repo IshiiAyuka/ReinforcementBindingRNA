@@ -1,7 +1,9 @@
 #!/bin/bash
 #$ -l h_vmem=100G
 source /home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/bin/activate
-conda activate esm2
+conda activate reinforce
+
+export RNAFOLD_BIN=/path/to/RNAfold
 
 cd /home/slab/ishiiayuka/M2
 

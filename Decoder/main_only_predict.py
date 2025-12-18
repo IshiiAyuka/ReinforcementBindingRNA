@@ -1,5 +1,7 @@
+import os
 import random
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from collections import defaultdict
@@ -8,6 +10,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from typing import Optional, Tuple
 
@@ -16,6 +19,58 @@ from dataset import RNADataset_AR, custom_collate_fn_AR
 from decode import sample_decode_multi_AR
 from model import ProteinToRNA
 from predict import _ids_to_string
+
+
+_RNAFOLD_BIN_CACHE: Optional[str] = None
+
+
+def _resolve_rnafold_bin() -> Optional[str]:
+    """
+    RNAfoldの実体を探す。
+    優先順位:
+      1. config.rnafold_bin
+      2. 環境変数 RNAFOLD_BIN
+      3. 現在のPATHでの command -v
+      4. login shell 経由の command -v (bash -lc)
+    見つからなければ None を返す。
+    """
+    global _RNAFOLD_BIN_CACHE
+    if _RNAFOLD_BIN_CACHE:
+        return _RNAFOLD_BIN_CACHE
+
+    candidates = [
+        getattr(config, "rnafold_bin", None),
+        os.environ.get("RNAFOLD_BIN"),
+        "RNAfold",
+    ]
+
+    for cand in candidates:
+        if not cand:
+            continue
+        if shutil.which(cand):
+            _RNAFOLD_BIN_CACHE = cand
+            return cand
+
+    # login shell を経由して command -v RNAfold を試す（.bashrc の module load 等が効く場合に検出）
+    try:
+        res = subprocess.run(
+            ["bash", "-lc", "command -v RNAfold"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        path = res.stdout.strip()
+        if path:
+            _RNAFOLD_BIN_CACHE = path
+            return path
+    except Exception:
+        pass
+
+    if not hasattr(_resolve_rnafold_bin, "_warned"):
+        print("RNAfold が見つかりませんでした。PATH もしくは config.rnafold_bin / 環境変数 RNAFOLD_BIN を設定してください。", flush=True)
+        _resolve_rnafold_bin._warned = True
+
+    return None
 
 
 def _gc_content(seq: str) -> Optional[float]:
@@ -38,24 +93,34 @@ def _rnafold_energy(seq: str) -> Tuple[Optional[float], Optional[float]]:
     if not seq:
         return None, None
 
+    rnafold_bin = _resolve_rnafold_bin()
+    if rnafold_bin is None:
+        return None, None
+
     try:
+        # -p でパーティション関数計算を有効化し、アンサンブル自由エネルギーを出力させる
         proc = subprocess.run(
-            ["RNAfold", "--noPS"],
+            [rnafold_bin, "-p", "--noPS"],
             input=seq + "\n",
             text=True,
             capture_output=True,
             check=True,
         )
     except FileNotFoundError:
-        print("RNAfold が見つかりませんでした。MFE/ensembleは空欄になります。", flush=True)
+        if not hasattr(_rnafold_energy, "_warned"):
+            print("RNAfold が見つかりませんでした。MFE/ensembleは空欄になります。", flush=True)
+            _rnafold_energy._warned = True
         return None, None
     except subprocess.CalledProcessError as exc:
         print(f"RNAfold 実行に失敗しました: {exc}", flush=True)
         return None, None
 
+    # stdoutとstderr両方を見る（環境により出力先が異なるため）
+    out_text = "\n".join(filter(None, [proc.stdout, proc.stderr]))
+
     mfe = None
     ensemble = None
-    for line in proc.stdout.splitlines():
+    for line in out_text.splitlines():
         if "(" in line and ")" in line:
             val = _parse_first_number(line)
             if val is not None:
@@ -96,10 +161,10 @@ if __name__ == "__main__":
     weights_dir = base_dir / "weights"
     weight_path = weights_dir / "t30_150M_decoder_AR_1129.pt"  # 利用したい重みに合わせて変更
 
-    model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
-    model = nn.DataParallel(model).to(config.device)
     state = torch.load(weight_path, map_location=config.device)
-    model.load_state_dict(state, strict=True)
+    base_model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
+    base_model.load_state_dict(state, strict=True)
+    model = nn.DataParallel(base_model).to(config.device)
     model.eval()
 
     # --- 生成 ---
@@ -109,7 +174,9 @@ if __name__ == "__main__":
 
     results = []
     with torch.no_grad():
-        for protein_batch, tgt_batch, prot_seq_batch in test_loader:
+        for protein_batch, tgt_batch, prot_seq_batch in tqdm(
+            test_loader, desc="Generating RNA", total=len(test_loader)
+        ):
             protein_batch = protein_batch.to(config.device)
 
             pred_ids_batch = sample_decode_multi_AR(
