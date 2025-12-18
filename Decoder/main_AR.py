@@ -69,4 +69,3 @@ if __name__ == "__main__":
 
     print("\n==== Trainデータセット評価 ====", flush=True)
     evaluate_model(model, train_loader, config.device)
-

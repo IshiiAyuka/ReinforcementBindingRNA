@@ -1,28 +1,30 @@
-import os
+from pathlib import Path
 import random
+from collections import defaultdict
+
+import pandas as pd
 import torch
 import torch.nn as nn
-from tqdm import tqdm
-import pandas as pd
-from dataset import RNADataset, custom_collate_fn
-from decode import sample_decode
-from model import ProteinToRNA
-import config
-from collections import defaultdict
 from torch.utils.data import DataLoader
 
+import config
+from dataset import RNADataset_AR, custom_collate_fn_AR
+from decode import sample_decode_multi_AR
+from model import ProteinToRNA
+from predict import _ids_to_string
 
 if __name__ == "__main__":
-    # --- データ準備 ---
+    # --- データ準備（クラスタでtrain/test分割のうちtestのみ使用） ---
     df = pd.read_csv(config.csv_path, low_memory=False)
 
-    pdb_id_dict   = dict(zip(df["subunit_1"], df["pdb_id"]))
-    prot_dict     = dict(zip(df["subunit_1"], df["s1_sequence"]))
-    true_rna_dict = dict(zip(df["subunit_1"], df["s2_sequence"]))
+    # 「s1_binding_site_cluster_data_40_area」列からクラスタ番号を抽出
     df["cluster_id"] = df["s1_binding_site_cluster_data_40_area"].apply(lambda x: str(x).split("_")[0])
+
+    # クラスタごとに構造IDをまとめる
     cluster_dict = defaultdict(list)
     for _, row in df.iterrows():
         cluster_dict[row["cluster_id"]].append(row["subunit_1"])
+
     #clusters = parse_clstr(config.clstr_path)
     clusters = list(cluster_dict.values())
     random.seed(42)
@@ -30,35 +32,52 @@ if __name__ == "__main__":
     split_idx = int(0.95 * len(clusters))
     test_ids = {sid for cluster in clusters[split_idx:] for sid in cluster}
 
-    dataset_test = RNADataset(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
-    #test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn)
+    dataset_test = RNADataset_AR(config.protein_feat_path, config.csv_path, allowed_ids=test_ids)
+
+    test_loader = DataLoader(dataset_test, batch_size=config.batch_size, shuffle=False, collate_fn=custom_collate_fn_AR)
 
     print(f"Testデータ数: {len(dataset_test)}")
 
-    # --- モデル定義 ---
+    # --- モデル定義 & 学習済み重み読込 ---
+    base_dir = Path(__file__).resolve().parent
+    weights_dir = base_dir / "weights"
+    weight_path = weights_dir / "t30_150M_decoder_AR_1129.pt"  # 利用したい重みに合わせて変更
+
     model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
     model = nn.DataParallel(model).to(config.device)
-    model.load_state_dict(torch.load("t6_8M_decoder_trimmed.pt", map_location=config.device))
+    state = torch.load(weight_path, map_location=config.device)
+    model.load_state_dict(state, strict=True)
     model.eval()
+
+    # --- 生成 ---
+    out_dir = base_dir / "generated_rna"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "generated_rna_AR_test.csv"
 
     results = []
     with torch.no_grad():
-        for feat, tgt, uid in tqdm(dataset_test, desc="評価中"):
-            pdb_id   = pdb_id_dict.get(uid, uid)
-            prot_seq = prot_dict[uid]
-            true_seq = true_rna_dict[uid]
+        for protein_batch, tgt_batch, prot_seq_batch in test_loader:
+            protein_batch = protein_batch.to(config.device)
 
-            feat = feat.to(config.device)
+            pred_ids_batch = sample_decode_multi_AR(
+                model,
+                protein_batch,
+                num_samples=config.num_samples,
+                max_len=config.max_len,
+                top_k=config.top_k,
+                temperature=config.temp,
+            )
 
-            pred_ids = sample_decode(model, feat, max_len=config.max_len, num_samples=config.num_samples)[0]
-            pred_seq = "".join(config.rna_ivocab[i] for i in pred_ids)
+            for prot_seq, tgt_seq, pred_ids in zip(prot_seq_batch, tgt_batch, pred_ids_batch):
+                true_seq = _ids_to_string(tgt_seq)
+                pred_seq = _ids_to_string(pred_ids)
+                results.append(
+                    {
+                        "protein_seq": prot_seq,
+                        "true_rna_seq": true_seq,
+                        "pred_rna_seq": pred_seq,
+                    }
+                )
 
-            results.append({"pdb_id": pdb_id, "protein_seq": prot_seq, "true_rna_seq": true_seq, "pred_rna_seq": pred_seq})
-
-
-    df_out = pd.DataFrame(results,columns=["pdb_id", "protein_seq", "true_rna_seq", "pred_rna_seq"])
-    out_path = "predictions_trimmed.csv"
-    df_out.to_csv(out_path, index=False, encoding="utf-8")
-    print(f"{out_path} に結果を保存しました。")
-
-
+    pd.DataFrame(results, columns=["protein_seq", "true_rna_seq", "pred_rna_seq"]).to_csv(out_path, index=False)
+    print(f"予測結果を {out_path} に保存しました。")
