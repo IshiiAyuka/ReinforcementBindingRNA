@@ -1,5 +1,7 @@
-from pathlib import Path
 import random
+import re
+import subprocess
+from pathlib import Path
 from collections import defaultdict
 
 import pandas as pd
@@ -7,11 +9,62 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from typing import Optional, Tuple
+
 import config
 from dataset import RNADataset_AR, custom_collate_fn_AR
 from decode import sample_decode_multi_AR
 from model import ProteinToRNA
 from predict import _ids_to_string
+
+
+def _gc_content(seq: str) -> Optional[float]:
+    if not seq:
+        return None
+    gc = sum(1 for c in seq.upper() if c in ("G", "C"))
+    return gc / len(seq)
+
+
+def _parse_first_number(text: str) -> Optional[float]:
+    match = re.search(r"([-+]?\d+(?:\.\d+)?)", text)
+    return float(match.group(1)) if match else None
+
+
+def _rnafold_energy(seq: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Returns (MFE, ensemble_free_energy) for a sequence using RNAfold.
+    If RNAfold is unavailable or fails, returns (None, None).
+    """
+    if not seq:
+        return None, None
+
+    try:
+        proc = subprocess.run(
+            ["RNAfold", "--noPS"],
+            input=seq + "\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        print("RNAfold が見つかりませんでした。MFE/ensembleは空欄になります。", flush=True)
+        return None, None
+    except subprocess.CalledProcessError as exc:
+        print(f"RNAfold 実行に失敗しました: {exc}", flush=True)
+        return None, None
+
+    mfe = None
+    ensemble = None
+    for line in proc.stdout.splitlines():
+        if "(" in line and ")" in line:
+            val = _parse_first_number(line)
+            if val is not None:
+                mfe = val
+        if "free energy of ensemble" in line:
+            val = _parse_first_number(line)
+            if val is not None:
+                ensemble = val
+    return mfe, ensemble
 
 if __name__ == "__main__":
     # --- データ準備（クラスタでtrain/test分割のうちtestのみ使用） ---
@@ -52,7 +105,7 @@ if __name__ == "__main__":
     # --- 生成 ---
     out_dir = base_dir / "generated_rna"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "generated_rna_AR_test.csv"
+    out_path = out_dir / "DecoderOnly_result.csv"
 
     results = []
     with torch.no_grad():
@@ -71,13 +124,31 @@ if __name__ == "__main__":
             for prot_seq, tgt_seq, pred_ids in zip(prot_seq_batch, tgt_batch, pred_ids_batch):
                 true_seq = _ids_to_string(tgt_seq)
                 pred_seq = _ids_to_string(pred_ids)
+                pred_len = len(pred_seq)
+                pred_gc = _gc_content(pred_seq)
+                pred_mfe, pred_ensemble = _rnafold_energy(pred_seq)
                 results.append(
                     {
                         "protein_seq": prot_seq,
                         "true_rna_seq": true_seq,
                         "pred_rna_seq": pred_seq,
+                        "gc": pred_gc,
+                        "length": pred_len,
+                        "MFE": pred_mfe,
+                        "EFE": pred_ensemble,
                     }
                 )
 
-    pd.DataFrame(results, columns=["protein_seq", "true_rna_seq", "pred_rna_seq"]).to_csv(out_path, index=False)
+    pd.DataFrame(
+        results,
+        columns=[
+            "protein_seq",
+            "true_rna_seq",
+            "pred_rna_seq",
+            "gc",
+            "length",
+            "MFE",
+            "EFE",
+        ],
+    ).to_csv(out_path, index=False)
     print(f"予測結果を {out_path} に保存しました。")
