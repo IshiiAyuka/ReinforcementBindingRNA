@@ -254,7 +254,7 @@ def compute_extra_reward_on_target(
 def main():
     weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
     protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_swissprot_RBP_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1215_6.pt"
+    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1215_8.pt"
 
     fasta_path = "/home/slab/ishiiayuka/M2/swissprot_RBP.fasta"
 
@@ -283,9 +283,9 @@ def main():
     neg_m = 5      # 各オンターゲットに対するオフターゲット数
 
     # 追加報酬（RNAfold / GC / Length）：全項を合算
-    RNAFOLD_LAMBDA = 0.5
-    GC_LAMBDA = 0.5
-    LENGTH_LAMBDA = 0.5
+    RNAFOLD_LAMBDA = 0.7
+    GC_LAMBDA = 0.7
+    LENGTH_LAMBDA = 0.7
     RNAFOLD_ENERGY_TYPE = "mfe"  # "ensemble" or "mfe"
     RNAFOLD_TARGET = 0.25
     RNAFOLD_SIGMA = 0.1
