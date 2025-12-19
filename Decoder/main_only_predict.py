@@ -174,7 +174,7 @@ if __name__ == "__main__":
     # --- モデル定義 & 学習済み重み読込 ---
     base_dir = Path(__file__).resolve().parent
     weights_dir = base_dir / "weights"
-    weight_path = weights_dir / "t30_150M_decoder_AR_reinforce_LucaOneOnly.pt"  # 利用したい重みに合わせて変更
+    weight_path = weights_dir / "t30_150M_decoder_AR_reinforce_All_MFE.pt"  # 利用したい重みに合わせて変更
 
     state = torch.load(weight_path, map_location=config.device)
     base_model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     # --- 生成 ---
     out_dir = base_dir / "generated_rna"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "LucaOneOnly_result.csv"
+    out_path = out_dir / "LucaOne_All_MFE_result.csv"
 
     results = []
     with torch.no_grad():
