@@ -126,6 +126,7 @@ def main():
 
         # 0.75以上だけカウント（失敗は0扱い、分母は常に num_samples）
         n_pass = 0
+        max_score = 0.0
         for seq in seq_list[:num_samples]:  # 念のため超過は無視
             try:
                 inputs = seq_to_onehot(seq, options)
@@ -133,13 +134,15 @@ def main():
                     predict_fn, options, output_shape, inputs, outpar
                 )
                 score = float(result["predictions"][0])
+                if score > max_score:
+                    max_score = score
                 if score >= args.thr:
                     n_pass += 1
             except Exception as e:
                 eprint("[ERROR] 評価失敗 pid={0} name={1}: {2}".format(pid, name, e))
 
         ratio = n_pass / float(num_samples)  # 常に100で割る
-        oprint("{0}\t{1}\t{2:.3f}".format(pid, name, ratio))
+        oprint("{0}\t{1}\t{2:.3f},{3:.3f}".format(pid, name, max_score, ratio))
 
     fin.close()
 

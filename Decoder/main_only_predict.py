@@ -120,15 +120,30 @@ def _rnafold_energy(seq: str) -> Tuple[Optional[float], Optional[float]]:
 
     mfe = None
     ensemble = None
+    energies = []
     for line in out_text.splitlines():
-        if "(" in line and ")" in line:
-            val = _parse_first_number(line)
-            if val is not None:
+        # 任意の括弧 () [] {} に挟まれた最初の数値を拾う
+        m_energy = re.search(r"[\(\[\{]\s*([-+]?\d+(?:\.\d+)?)", line)
+        if m_energy:
+            val = float(m_energy.group(1))
+            energies.append(val)
+            if "(" in line and mfe is None:
                 mfe = val
-        if "free energy of ensemble" in line:
-            val = _parse_first_number(line)
-            if val is not None:
-                ensemble = val
+
+        # 明示的な ensemble 行があればそれを採用
+        m_ens = re.search(r"ensemble[^=]*=\s*([-+]?\d+(?:\.\d+)?)", line, flags=re.IGNORECASE)
+        if m_ens:
+            ensemble = float(m_ens.group(1))
+
+    # ensemble が取れない場合、最後に出たエネルギー値をフォールバックとして使う
+    if ensemble is None and energies:
+        ensemble = energies[-1]
+
+    # ensemble が取れない場合、デバッグ用に1回だけ出力
+    if ensemble is None and not hasattr(_rnafold_energy, "_warned_no_ensemble"):
+        print("RNAfold 出力からアンサンブル自由エネルギーを取得できませんでした。出力を確認してください。", flush=True)
+        _rnafold_energy._warned_no_ensemble = True
+
     return mfe, ensemble
 
 if __name__ == "__main__":
@@ -159,7 +174,7 @@ if __name__ == "__main__":
     # --- モデル定義 & 学習済み重み読込 ---
     base_dir = Path(__file__).resolve().parent
     weights_dir = base_dir / "weights"
-    weight_path = weights_dir / "t30_150M_decoder_AR_1129.pt"  # 利用したい重みに合わせて変更
+    weight_path = weights_dir / "t30_150M_decoder_AR_reinforce_LucaOneOnly.pt"  # 利用したい重みに合わせて変更
 
     state = torch.load(weight_path, map_location=config.device)
     base_model = ProteinToRNA(input_dim=config.input_dim, num_layers=config.num_layers)
@@ -170,7 +185,7 @@ if __name__ == "__main__":
     # --- 生成 ---
     out_dir = base_dir / "generated_rna"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "DecoderOnly_result.csv"
+    out_path = out_dir / "LucaOneOnly_result.csv"
 
     results = []
     with torch.no_grad():
@@ -204,6 +219,10 @@ if __name__ == "__main__":
                         "MFE": pred_mfe,
                         "EFE": pred_ensemble,
                     }
+                )
+                print(
+                    f"[RNA] GC={pred_gc} len={pred_len} MFE={pred_mfe} EFE={pred_ensemble} seq={pred_seq}",
+                    flush=True,
                 )
 
     pd.DataFrame(

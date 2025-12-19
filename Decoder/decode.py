@@ -3,6 +3,11 @@ import torch.nn as nn
 #import Decoder.config as config
 import config 
 
+# 本体トークン長の上限（<sos>/<eos>を除外した長さ）
+MAX_BODY_LEN = config.max_len - 2
+if MAX_BODY_LEN <= 0:
+    raise ValueError("config.max_len must be at least 2 to allow <sos> and <eos>")
+
 @torch.no_grad()
 def greedy_decode(model, protein_feat):
     """
@@ -21,7 +26,7 @@ def greedy_decode(model, protein_feat):
     pf = pf.to(config.device, non_blocking=True)
 
     with torch.no_grad():
-        for _ in range(config.max_len):
+        for _ in range(MAX_BODY_LEN):
             # 接頭辞が空でもOK：空テンソルを渡す（forwardで<sos>付与→長さ1）
             if len(generated) == 0:
                 tgt_seq = torch.empty((1, 0), dtype=torch.long, device=config.device)
@@ -110,6 +115,7 @@ def sample_decode_multi(model,
                   temperature=config.temp):
     
     device = protein_feat.device
+    max_body_len = max_len - 2
 
     single = False
     if protein_feat.dim() == 1:
@@ -142,9 +148,9 @@ def sample_decode_multi(model,
 
         # ---- NARで一括ロジット ----
         if isinstance(model, nn.DataParallel):
-            logits = model.module.forward_parallel(feat_rep, out_len=max_len)  # [B*S, L, V]
+            logits = model.module.forward_parallel(feat_rep, out_len=max_body_len)  # [B*S, L, V]
         else:
-            logits = model.forward_parallel(feat_rep, out_len=max_len)         # [B*S, L, V]
+            logits = model.forward_parallel(feat_rep, out_len=max_body_len)         # [B*S, L, V]
 
         # 生成したくないトークンをban（<eos>は従来通り許可）
         logits = logits.clone()
@@ -202,6 +208,7 @@ def sample_decode_multi_AR(model,
 
     protein_feat = protein_feat.to(device, non_blocking=True)
     B, S_seq, D_in = protein_feat.shape
+    max_body_len = max_len - 2
 
     PAD = config.rna_vocab["<pad>"]
     SOS = config.rna_vocab["<sos>"]
@@ -214,7 +221,7 @@ def sample_decode_multi_AR(model,
     toks = torch.full((N, 1), SOS, dtype=torch.long, device=device)  # [N, 1]
     finished = torch.zeros(N, dtype=torch.bool, device=device)
 
-    for t in range(max_len - 1):
+    for t in range(max_body_len):
         # logits: [N, L, V]
         logits = model(feat_rep, toks)
         next_logits = logits[:, -1, :].clone()  # [N, V]
