@@ -7,5 +7,5 @@ export RNAFOLD_BIN=/path/to/RNAfold
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u Decoder/main_only_predict.py >Decoder/output_1219_____.log 2>Decoder/error_1219_____.log &
+nohup python -u Decoder/main_only_predict.py >Decoder/output_1219_λ0.1_MFE.log 2>Decoder/error_1219_λ0.1_MFE.log &
 pid=$!
