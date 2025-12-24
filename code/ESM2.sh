@@ -10,4 +10,4 @@ conda activate esm2
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u code/ESM2_CSV.py > code/ESM2_output3.log 2> code/ESM2_error3.log &
+nohup python -u code/ESM2_fasta.py > code/ESM2_output4.log 2> code/ESM2_error4.log &
