@@ -8,6 +8,14 @@ import sys
 from typing import Iterable, List, Tuple
 
 
+def gc_content(sequence: str) -> float:
+    seq = sequence.upper()
+    if not seq:
+        return 0.0
+    gc_count = sum(1 for base in seq if base in ("G", "C"))
+    return gc_count / len(seq)
+
+
 def run_rnafold(sequence: str) -> Tuple[float, float]:
     """Run RNAfold for a single sequence and return (mfe, ensemble_energy)."""
     proc = subprocess.run(
@@ -84,7 +92,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--out",
-        default="LucaOne_All_EFE_result.csv",
+        default="All_EFE_RNAcompete.csv",
         help="Path to write CSV with added MFE and EnsembleEnergy columns (default: aptamer_with_energy.csv)",
     )
     args = parser.parse_args()
@@ -104,21 +112,38 @@ def main() -> int:
     failures: List[Tuple[int, str]] = []
 
     for idx, (seq, row) in enumerate(zip(sequences, rows), start=1):
+        truncated_seq = seq[:100] if len(seq) >= 101 else seq
+        seq_len = len(truncated_seq)
+        gc_frac = gc_content(truncated_seq)
+        row["Length"] = str(seq_len)
+        row["GC_Content"] = f"{gc_frac:.4f}"
         try:
-            mfe, ensemble = run_rnafold(seq)
+            mfe, ensemble = run_rnafold(truncated_seq)
             mfe_values.append(mfe)
             ensemble_values.append(ensemble)
             row["MFE"] = f"{mfe:.4f}"
             row["EnsembleEnergy"] = f"{ensemble:.4f}"
+            if seq_len:
+                row["MFE_per_len"] = f"{(mfe / seq_len):.4f}"
+                row["EnsembleEnergy_per_len"] = f"{(ensemble / seq_len):.4f}"
+            else:
+                row["MFE_per_len"] = ""
+                row["EnsembleEnergy_per_len"] = ""
         except Exception as exc:
             failures.append((idx, str(exc)))
             row["MFE"] = ""
             row["EnsembleEnergy"] = ""
+            row["MFE_per_len"] = ""
+            row["EnsembleEnergy_per_len"] = ""
 
     if args.out:
         fieldnames = list(rows[0].keys())
         if "MFE" not in fieldnames:
             fieldnames += ["MFE", "EnsembleEnergy"]
+        if "Length" not in fieldnames:
+            fieldnames += ["Length", "GC_Content"]
+        if "MFE_per_len" not in fieldnames:
+            fieldnames += ["MFE_per_len", "EnsembleEnergy_per_len"]
         with open(args.out, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
