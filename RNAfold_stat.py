@@ -87,12 +87,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--csv",
-        default="/home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_1212_All_EFE.csv",
+        default="/home/slab/ishiiayuka/M2/deepclip/generated_rna/generated_rna_1212_Random.csv",
         help="Path to input CSV containing a Sequence column (default: aptamer.csv)",
     )
     parser.add_argument(
         "--out",
-        default="All_EFE_RNAcompete.csv",
+        default="Random_RNAcompete.csv",
         help="Path to write CSV with added MFE and EnsembleEnergy columns (default: aptamer_with_energy.csv)",
     )
     args = parser.parse_args()
