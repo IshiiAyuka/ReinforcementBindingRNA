@@ -6,17 +6,17 @@ from scipy.stats import gaussian_kde
 
 BANG_CSV   = "/home/slab/ishiiayuka/M2/deepclip_result/BAnG_RNAcompete.csv"
 RANDOM_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/Random_RNAcompete.csv"
-top_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/top_RNAcompete.csv"
-bottom_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/bottom_RNAcompete.csv"
+aptamer_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/aptamer_with_energy.csv"
+
 
 CSV = "/home/slab/ishiiayuka/M2/deepclip_result/LucaOneOnly_RNAcompete.csv"        
-COL = "Length"       
+COL = "GC_Content"       
 
 OUT_PNG = f"LucaOneOnly_{COL}.png"
 
 # KDEの滑らかさ（大きいほど “なだらか”）
 BW = 1.2
-# =========================
+# ========================
 
 
 def load_col(path: str, col: str) -> np.ndarray:
@@ -36,16 +36,14 @@ def main():
 
     bang = load_col(BANG_CSV, COL)
     rand = load_col(RANDOM_CSV, COL)
-    top = load_col(top_CSV,COL)
-    bottom = load_col(bottom_CSV,COL)
+    aptamer = load_col(aptamer_CSV,COL)
     target = load_col(CSV, COL)  
 
     series = {
         "BAnG": bang,
         "Mymodel": target,
         "Random": rand,
-        "top": top,
-        "bottom":bottom
+        "aptamer": aptamer
     }
 
     all_vals = np.concatenate(list(series.values()))
