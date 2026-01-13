@@ -8,8 +8,8 @@ import sys
 import csv
 import numpy as np
 
-DEFAULT_INPUT = "/home/slab/ishiiayuka/M2/deepclip/All_MFE_RNAcompete.csv"
-DEFAULT_OUTPUT = "/home/slab/ishiiayuka/M2/deepclip_result/All_MFE_RNAcompete_with_score.csv"
+DEFAULT_INPUT = "/home/slab/ishiiayuka/M2/deepclip/DecoderOnly_RNAcompete.csv"
+DEFAULT_OUTPUT = "/home/slab/ishiiayuka/M2/deepclip_result/DecoderOnly_RNAcompete_with_score.csv"
 DEFAULT_WEIGHTS_DIR = "/home/slab/ishiiayuka/M2/deepclip/models/RNCMPT"
 DEFAULT_ID_COL = "id"
 DEFAULT_SEQ_COL = "sequence"
