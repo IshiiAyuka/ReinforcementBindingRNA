@@ -12,8 +12,8 @@ from tqdm import tqdm
 from LucaOneTasks.src.predict_v1 import run as predict_run
 
 
-INPUT_CSV = "deepclip_result/LucaOneOnly_RNAcompete_with_score.csv"
-OUTPUT_CSV = "LucaOneOnly_RNAcompete_with_score_lucaone.csv"
+INPUT_CSV = "deepclip_result/DecoderOnly_RNAcompete_with_score.csv"
+OUTPUT_CSV = "DecoderOnly_RNAcompete_with_score_lucaone.csv"
 ID_COL = "id"
 SEQ_COL = "sequence"
 SCORE_COL = "LucaOne_Score"
