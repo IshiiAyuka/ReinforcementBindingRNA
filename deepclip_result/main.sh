@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2/deepclip_result
 
-nohup python -u add_lucaone_score.py > output.log 2> error.log &
+nohup python -u distribution.py > output.log 2> error.log &

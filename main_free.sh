@@ -10,4 +10,4 @@ conda activate reinforce
 
 cd /home/slab/ishiiayuka/M2
 
-nohup python -u add_lucaone_score.py > output.log 2> error.log &
+nohup python -u alignment.py > output.log 2> error.log &
