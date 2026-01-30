@@ -10,4 +10,4 @@ conda activate deepclip
 
 cd /home/slab/ishiiayuka/M2/deepclip
 
-nohup python -u add_deepclip_score.py > output.log 2> error.log &
+nohup python -u add_deepclip_score_offtarget_mean.py > output_0130.log 2> error_0130.log &
