@@ -9,15 +9,15 @@ RANDOM_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/Random_RNAcompete.csv"
 aptamer_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/aptamer_with_energy.csv"
 
 
-CSV = "/home/slab/ishiiayuka/M2/deepclip_result/All_EFE_RNAcompete.csv"        
+CSV = "/home/slab/ishiiayuka/M2/deepclip_result/EFE_RNAcompete.csv"        
 #COL = "GC_Content" 
 #COL = "Length"      
 COL = "EFE_Norm"
 
-OUT_PNG = f"All_EFE_{COL}.png"
+OUT_PNG = f"EFE_{COL}.png"
 
 # KDEの滑らかさ（大きいほど “なだらか”）
-BW = 1.2
+BW = 0.8
 # ========================
 
 

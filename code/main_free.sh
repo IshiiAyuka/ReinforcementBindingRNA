@@ -6,8 +6,8 @@ export MKL_NUM_THREADS=1
 num_workers=0
 
 source /home/slab/ishiiayuka/.pyenv/versions/anaconda3-2023.03/bin/activate
-conda activate second
+conda activate reinforce
 
-cd /home/slab/ishiiayuka/M2/deepclip_result
+cd /home/slab/ishiiayuka/M2/code
 
-nohup python -u distribution.py > output.log 2> error.log &
+nohup python -u count_contact.py > output.log 2> error.log &

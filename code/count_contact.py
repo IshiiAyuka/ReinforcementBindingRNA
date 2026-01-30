@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import argparse
 import os
 import gzip
 import urllib.request
 import urllib.error
 from typing import Optional, Tuple
+from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
 from Bio.PDB import MMCIFParser
 from tqdm import tqdm
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 # SciPy があれば高速に近傍探索
 try:
@@ -113,10 +116,6 @@ def process_row(row, data_dir: str, cutoff: float) -> Tuple[Optional[str], str]:
     if prot_len is None or rna_len is None:
         return (None, "skip")
 
-    # 条件を満たさなければスキップ（無言）
-    if not (prot_len <= 1000 and rna_len <= 500):
-        return (None, "skip")
-
     # --- mmCIF を用意（無ければダウンロード） ---
     cif_file = os.path.join(data_dir, f"{pdb_id}.cif.gz")
     if not os.path.exists(cif_file):
@@ -197,36 +196,100 @@ def process_row(row, data_dir: str, cutoff: float) -> Tuple[Optional[str], str]:
     return (msg, "ok")
 
 
+def process_row_safe(row, data_dir: str, cutoff: float) -> Tuple[Optional[str], str]:
+    try:
+        return process_row(row, data_dir, cutoff)
+    except Exception as e:
+        pdb_id = str(row.get("pdb_id", "NA")).upper()
+        msg = f"[{pdb_id}] rna_res=NA rna_res_contact=NA rna_contact_ratio=NA note=exception"
+        return (msg, "err")
+
+
+def process_row_safe_star(args) -> Tuple[Optional[str], str]:
+    row, data_dir, cutoff = args
+    return process_row_safe(row, data_dir, cutoff)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="タンパク質-RNAの接触塩基率を逐次表示（prot≤1000 & rna≤500、cif自動DL、skipは無言）")
-    parser.add_argument("--csv", default="ppi3d.csv", help="入力CSV（pdb_id, subunit_1, subunit_2, s1_sequence, s2_sequence を含む）")
-    parser.add_argument("--data-dir", default="./mmcif_protein_rna", help="mmCIF(.cif.gz) のディレクトリ（無ければ作成）")
-    parser.add_argument("--cutoff", type=float, default=4.0, help="コンタクト判定しきい値 [Å]（既定: 4.0）")
+    # ここで全ての設定を指定
+    csv_path = "/home/slab/ishiiayuka/M2/ppi3d.csv"
+    data_dir = "./home/slab/ishiiayuka/M2/mmcif_protein_rna"
+    cutoff = 5.0
+    no_error_logs = False
+    hist_png = "contact.png"
+    hist_bins = 10
+    use_multiprocessing = True
+    num_workers = max(1, (os.cpu_count() or 2) - 1)
+    chunk_size = 20
 
-    # ★ 追加: エラー行を逐次出力しないフラグ
-    parser.add_argument("--no-error-logs", action="store_true", help="エラー行も逐次出力しない（最後のサマリのみ）")
-
-    args = parser.parse_args()
-
-    df = pd.read_csv(args.csv, low_memory=False)
+    df = pd.read_csv(csv_path, low_memory=False)
     df.columns = df.columns.str.strip().str.lower()
 
+    # 欠損数の確認
+    total_rows = len(df)
+    missing_s1 = df["s1_sequence"].isna().sum()
+    missing_s2 = df["s2_sequence"].isna().sum()
+    tqdm.write(f"total_rows={total_rows} missing_s1_sequence={missing_s1} missing_s2_sequence={missing_s2}")
+
+    # 欠損のみ除外（長さフィルタなし）
+    prot_len = df["s1_sequence"].apply(_clean_len)
+    rna_len = df["s2_sequence"].apply(_clean_len)
+    mask = prot_len.notna() & rna_len.notna()
+    df = df.loc[mask, ["pdb_id", "subunit_1", "subunit_2", "s1_sequence", "s2_sequence"]]
+    records = df.to_dict("records")
+    tqdm.write(f"records_after_filter={len(records)}")
+
     ok = err = skipped = 0
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="原子間コンタクト集計中", ncols=100):
-        try:
-            msg, status = process_row(row, args.data_dir, args.cutoff)
+    ratios = []
+    if use_multiprocessing and num_workers > 1:
+        tasks = ((row, data_dir, cutoff) for row in records)
+        with Pool(processes=num_workers, maxtasksperchild=200) as pool:
+            it = pool.imap_unordered(
+                process_row_safe_star,
+                tasks,
+                chunksize=chunk_size,
+            )
+            for msg, status in tqdm(it, total=len(records), desc="原子間コンタクト集計中", ncols=100):
+                if status == "ok":
+                    tqdm.write(msg)
+                    try:
+                        ratio_val = float(msg.split("rna_contact_ratio=")[-1])
+                        ratios.append(ratio_val)
+                    except Exception:
+                        pass
+                    ok += 1
+                elif status == "err":
+                    if not no_error_logs:
+                        tqdm.write(msg)
+                    err += 1
+                else:  # skip
+                    skipped += 1  # 無言
+    else:
+        for row in tqdm(records, total=len(records), desc="原子間コンタクト集計中", ncols=100):
+            msg, status = process_row_safe(row, data_dir, cutoff)
             if status == "ok":
                 tqdm.write(msg)
+                try:
+                    ratio_val = float(msg.split("rna_contact_ratio=")[-1])
+                    ratios.append(ratio_val)
+                except Exception:
+                    pass
                 ok += 1
             elif status == "err":
-                if not args.no_error_logs:
+                if not no_error_logs:
                     tqdm.write(msg)
                 err += 1
             else:  # skip
                 skipped += 1  # 無言
-        except Exception as e:
-            err += 1
     tqdm.write(f"done: ok={ok}, error={err}, skipped={skipped}")
+    if hist_png and ratios:
+        plt.figure(figsize=(6, 4))
+        plt.hist(ratios, bins=hist_bins, color="#4C78A8", edgecolor="white")
+        plt.xlabel("RNA contact ratio")
+        plt.ylabel("Count")
+        plt.title("RNA contact ratio histogram")
+        plt.tight_layout()
+        plt.savefig(hist_png, dpi=200)
 
 
 if __name__ == "__main__":
