@@ -10,4 +10,4 @@ conda activate second
 
 cd /home/slab/ishiiayuka/M2/deepclip_result
 
-nohup python -u distribution.py > output.log 2> error.log &
+nohup python -u distribution.py > output_0202.log 2> error_0202.log &

@@ -5,16 +5,16 @@ import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde, wasserstein_distance
 
 BANG_CSV   = "/home/slab/ishiiayuka/M2/deepclip_result/BAnG_RNAcompete.csv"
-RANDOM_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/Random_RNAcompete.csv"
+DecoderOnly_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/DecoderOnly_RNAcompete.csv"
 aptamer_CSV = "/home/slab/ishiiayuka/M2/deepclip_result/aptamer_with_energy.csv"
 
 
-CSV = "/home/slab/ishiiayuka/M2/deepclip_result/EFE_RNAcompete.csv"        
+CSV = "/home/slab/ishiiayuka/M2/deepclip_result/All_MFE_RNAcompete.csv"        
 #COL = "GC_Content" 
-#COL = "Length"      
-COL = "EFE_Norm"
+COL = "Length"      
+#COL = "MFE_Norm"
 
-OUT_PNG = f"EFE_{COL}.png"
+OUT_PNG = f"{COL}_slide.png"
 
 # KDEの滑らかさ（大きいほど “なだらか”）
 BW = 0.8
@@ -37,14 +37,14 @@ def load_col(path: str, col: str) -> np.ndarray:
 def main():
 
     bang = load_col(BANG_CSV, COL)
-    rand = load_col(RANDOM_CSV, COL)
+    Decoder = load_col(DecoderOnly_CSV, COL)
     aptamer = load_col(aptamer_CSV,COL)
     target = load_col(CSV, COL)  
 
     series = {
-        "BAnG": bang,
-        "Mymodel": target,
-        "Random": rand,
+        "RNA-BAnG": bang,
+        "手法6": target,
+        "手法1": Decoder,
         "aptamer": aptamer
     }
 
