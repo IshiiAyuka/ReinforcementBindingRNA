@@ -38,7 +38,7 @@ code/
 *.png
 *.pkl
 *.txt
-
+*.sh
 
 # OS
 .DS_Store
