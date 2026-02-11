@@ -48,7 +48,7 @@ def extract_features(name, seq):
 
 # === 特徴量抽出実行 ===
 protein_features = {}
-df = pd.read_csv("/home/slab/ishiiayuka/M2/RNAcompete.csv")
+df = pd.read_csv("RNAcompete.csv")
 
 for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"):
     uid = str(row["file_name"]).strip()       # 例: "3af6_A"
@@ -78,9 +78,3 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"
 # 保存
 torch.save(protein_features, "t30_150M_RNAcompete_3D.pt")
 print("特徴量を保存しました。")
-
-loaded = torch.load("t30_150M_RNAcompete_3D.pt", map_location="cpu")
-for i, (k, v) in enumerate(loaded.items()):
-    print(f"{i+1}. {k}: shape={tuple(v.shape)}")
-    if i >= 4:
-        break

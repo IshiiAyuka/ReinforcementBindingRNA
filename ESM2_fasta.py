@@ -80,7 +80,7 @@ for record in tqdm(records, desc="特徴量抽出中 (FASTA)"):
         continue
 
     L = len(seq)
-    if L > MAX_LEN:  # 1023以上を無視したい → MAX_LEN=1022 としてここで弾く
+    if L > MAX_LEN:  
         print(f"Skip {uid}（長さ{L}）: 配列長が条件外（>=1023）")
         n_skip_long += 1
         continue
@@ -99,17 +99,3 @@ for record in tqdm(records, desc="特徴量抽出中 (FASTA)"):
 # ===== 保存 & 簡単な確認 =====
 torch.save(protein_features, out_path)
 print(f"特徴量を {out_path} に保存しました。")
-
-print("----- summary -----")
-print("total records:", n_total)
-print("saved (有効だった配列数):", n_ok)  # ←これが「有効だった配列数」
-print("skipped missing:", n_skip_missing)
-print("skipped duplicate:", n_skip_dup)
-print("skipped long (>=1023):", n_skip_long)
-print("errors:", n_error)
-
-loaded = torch.load(out_path, map_location="cpu")
-for i, (k, v) in enumerate(loaded.items()):
-    print(f"{i+1}. {k}: shape={tuple(v.shape)}, dim={v.dim()}")
-    if i >= 4:
-        break
