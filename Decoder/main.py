@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     df = pd.read_csv(config.csv_path, low_memory=False)
 
-    # 「s1_binding_site_cluster_data_40_area」列からクラスタ番号を抽出
+    # ppi3dから取得したデータを使用し、カラム名もそのまま使用
     df["cluster_id"] = df["s1_binding_site_cluster_data_40_area"].apply(lambda x: str(x).split("_")[0])
 
     # クラスタごとに構造IDをまとめる

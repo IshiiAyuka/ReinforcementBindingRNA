@@ -3,17 +3,13 @@ import torch.nn as nn
 #import Decoder.config as config
 import config 
 
-# 本体トークン長の上限（<sos>/<eos>を除外した長さ）
 MAX_BODY_LEN = config.max_len - 2
 if MAX_BODY_LEN <= 0:
     raise ValueError("config.max_len must be at least 2 to allow <sos> and <eos>")
 
 @torch.no_grad()
 def greedy_decode(model, protein_feat):
-    """
-    逐次生成（greedy）。min_len_no_eos までは EOS を強制的に無効化。
-    戻り値は <sos> を除いたトークン列。
-    """
+
     model.eval()
 
     eos_id = config.rna_vocab["<eos>"]
@@ -21,13 +17,11 @@ def greedy_decode(model, protein_feat):
 
     generated = []
 
-    # protein_feat が 1D の場合のみバッチ次元を付与（元コードの挙動を踏襲）
     pf = protein_feat.unsqueeze(0) if protein_feat.dim() == 1 else protein_feat
     pf = pf.to(config.device, non_blocking=True)
 
     with torch.no_grad():
         for _ in range(MAX_BODY_LEN):
-            # 接頭辞が空でもOK：空テンソルを渡す（forwardで<sos>付与→長さ1）
             if len(generated) == 0:
                 tgt_seq = torch.empty((1, 0), dtype=torch.long, device=config.device)
             else:
@@ -50,10 +44,6 @@ def greedy_decode(model, protein_feat):
     return generated
 
 def _debug_check_decoding(logits, next_logits, probs, t: int):
-    """
-    ARデコード中に NaN / Inf / 変な確率が出ていないかをまとめてチェックする。
-    何かおかしければ RuntimeError を投げて詳細を print する。
-    """
     # 1) モデル出力 logits のチェック
     has_nan_logit = torch.isnan(logits).any().item()
     has_inf_logit = torch.isinf(logits).any().item()
@@ -104,97 +94,6 @@ def _debug_check_decoding(logits, next_logits, probs, t: int):
                   probs[k, :10].detach().cpu().tolist(), flush=True)
             print("  row_sum[bad_row] =", row_sum[k].item(), flush=True)
         raise RuntimeError("DEBUG: invalid probs before torch.multinomial")
-
-
-        
-def sample_decode_multi(model,
-                  protein_feat,
-                  max_len=config.max_len,
-                  num_samples=config.num_samples,
-                  top_k=config.top_k,
-                  temperature=config.temp):
-    
-    device = protein_feat.device
-    max_body_len = max_len - 2
-
-    single = False
-    if protein_feat.dim() == 1:
-        feat = protein_feat.unsqueeze(0)
-        single = True
-    elif protein_feat.dim() == 2:
-        feat = protein_feat
-    else:
-        raise ValueError(f"protein_feat.dim() must be 1 or 2, got {protein_feat.dim()}")
-
-    B = feat.size(0)
-    SOS = config.rna_vocab_NAR["<sos>"]
-    EOS = config.rna_vocab_NAR["<eos>"]
-    PAD = config.rna_vocab_NAR["<pad>"]
-    MASK = config.rna_vocab_NAR["<MASK>"]
-
-    # 出力入れ物
-    out_all = [[] for _ in range(B)]
-
-    # まとめて複数サンプル（OOMなら後でchunk分割してもOK）
-    S_total = int(num_samples) if num_samples is not None else 1
-    S_step = getattr(config, "samples_chunk_size", 0) or S_total
-    done = 0
-
-    while done < S_total:
-        S = min(S_step, S_total - done)
-
-        # [B*S, D] に複製
-        feat_rep = feat.repeat_interleave(S, dim=0).to(device, non_blocking=True)
-
-        # ---- NARで一括ロジット ----
-        if isinstance(model, nn.DataParallel):
-            logits = model.module.forward_parallel(feat_rep, out_len=max_body_len)  # [B*S, L, V]
-        else:
-            logits = model.forward_parallel(feat_rep, out_len=max_body_len)         # [B*S, L, V]
-
-        # 生成したくないトークンをban（<eos>は従来通り許可）
-        logits = logits.clone()
-        logits[..., PAD]  = float("-inf")
-        logits[..., SOS]  = float("-inf")
-        logits[..., MASK] = float("-inf")
-        logits[:, :min(config.min_len, logits.size(1)), EOS] = float("-inf")
-
-        # 温度
-        if temperature and temperature != 1.0:
-            logits = logits / max(temperature, 1e-6)
-
-        # top-k（位置ごとにマスク）
-        N, L, V = logits.shape  # N = B*S
-        flat = logits.view(N * L, V)
-        if top_k and 0 < top_k < V:
-            topv, topi = torch.topk(flat, k=top_k, dim=-1)
-            mask = torch.full_like(flat, float("-inf"))
-            mask.scatter_(1, topi, topv)
-            flat = mask
-
-        # サンプリング（位置独立）
-        probs = torch.softmax(flat, dim=-1)
-        toks  = torch.multinomial(probs, 1).view(N, L)  # [B*S, L]
-
-        # 各BについてS本ずつ取り出し、<pad>/<sos>/<MASK>スキップ & <eos>までで切る
-        for i in range(B):
-            block = toks[i*S:(i+1)*S]
-            seq_list = []
-            for row in block:
-                seq = []
-                for tok in row.tolist():
-                    if tok == EOS: break
-                    if tok in (PAD, SOS, MASK): continue
-                    seq.append(tok)
-                seq_list.append(seq)
-            out_all[i].extend(seq_list)
-
-        done += S
-
-    # 互換：num_samples==1 → [B][L] で返す
-    if S_total == 1:
-        return [seqs[0] if len(seqs) > 0 else [] for seqs in out_all]
-    return out_all
 
 @torch.inference_mode()
 def sample_decode_multi_AR(model,
