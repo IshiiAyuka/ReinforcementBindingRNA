@@ -13,7 +13,7 @@ code/
 *.pth
 *.ckpt
 *.h5
-
+*.ps
 # Arrays
 *.npz
 *.npy
