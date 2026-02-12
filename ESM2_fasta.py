@@ -6,11 +6,11 @@ from tqdm import tqdm
 from Bio import SeqIO
 
 # ===== 設定 =====
-fasta_path = "swissprot_RBP.fasta"
+fasta_path = "swissprot_RBP.fasta" #Swissprot由来のタンパク質配列データセット
 out_path   = "t30_150M_swissprot_RBP_3D.pt"
 layer = 30
 
-MAX_LEN = 1022  # 1023以上はスキップ（= L > 1022 を弾く）
+MAX_LEN = 1022  
 
 # ===== デバイス / モデル =====
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,6 +96,5 @@ for record in tqdm(records, desc="特徴量抽出中 (FASTA)"):
         torch.cuda.empty_cache()
         continue
 
-# ===== 保存 & 簡単な確認 =====
 torch.save(protein_features, out_path)
 print(f"特徴量を {out_path} に保存しました。")
