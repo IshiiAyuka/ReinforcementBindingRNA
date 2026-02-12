@@ -41,7 +41,7 @@ https://github.com/IshiiAyuka/ReinforcementBindingRNA
 │
 ├── ESM2_CSV.py
 ├── ESM2_fasta.py
-├── reinforce_swissprot_AR_offtarget...
+├── reinforce.py
 ├── environment.yml
 ├── .gitignore
 └── README.md
