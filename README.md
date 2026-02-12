@@ -49,30 +49,11 @@ conda create -n rna_rl python=3.10
 conda activate rna_rl
 ```
 
-### 2. Install Dependencies
-
-Install PyTorch (GPU version if available):
+### 2. Create Conda Environment from environment.yml
 
 ```bash
-pip install torch torchvision torchaudio
-```
-
-Install ESM2:
-
-```bash
-pip install fair-esm
-```
-
-If RNA free energy calculation is used:
-
-```bash
-conda install -c bioconda viennarna
-```
-
-Install additional dependencies:
-
-```bash
-pip install numpy pandas matplotlib scikit-learn tqdm pyyaml
+conda env create -f environment.yml
+conda activate rna_rl
 ```
 
 ---
