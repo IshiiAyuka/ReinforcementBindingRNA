@@ -16,7 +16,6 @@ deepclip/
 *.ckpt
 *.h5
 *.ps
-*.yml
 # Arrays
 *.npz
 *.npy
