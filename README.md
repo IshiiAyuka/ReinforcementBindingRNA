@@ -51,7 +51,7 @@ https://github.com/IshiiAyuka/ReinforcementBindingRNA
 
 ## Environment Setup
 
-### 1. Clone the Repository
+### Clone the Repository
 
 ```bash
 git clone https://github.com/IshiiAyuka/ReinforcementBindingRNA.git
@@ -60,15 +60,70 @@ cd ReinforcementBindingRNA
 
 ---
 
-### 2. Create Conda Environment from environment.yml
+### Create Conda Environment from environment.yml
 
 ```bash
 conda env create -f environment.yml
 conda activate reinforce
 ```
+---
 
+# Dataset
+
+## 1. Supervised Training Data (PPI3D-derived)
+
+Supervised learning data are derived from the **PPI3D database**.
+
+Please download the dataset from:
+
+https://bioinformatics.lt/ppi3d/clusters
+
+### Download Instructions
+
+1. Open the URL above.
+2. In the filter options, check:
+
+```
+Protein-nucleic acid interactions
+```
+
+3. Download the corresponding clustered dataset.
+
+These data are used to construct protein–nucleic acid interaction training pairs.
 
 ---
+
+## 2. Reinforcement Learning Data (SwissProt-derived)
+
+Protein sequences used for reinforcement learning are obtained from **UniProt (SwissProt)**.
+
+Download from:
+
+https://www.uniprot.org
+
+### Download Instructions
+
+1. Search for proteins of interest.
+2. Apply filter:
+
+```
+Reviewed (Swiss-Prot)
+```
+
+3. Download sequences in FASTA format.
+
+Only **reviewed (manually curated) SwissProt entries** are used to ensure sequence reliability.
+
+---
+
+## Notes on Data Usage
+
+- PPI3D-derived data are used for supervised components (interaction modeling).
+- SwissProt-derived data are used for reinforcement learning–based RNA generation.
+- Protein sequences must satisfy the ESM2 length constraint (≤ 1022 residues).
+
+---
+## Embedding
 
 #### From FASTA
 
