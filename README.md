@@ -4,7 +4,7 @@
 4. デコーダがRNA配列を出力(10~100nt)
 5. タンパク質配列を強化学習モジュールに入力(SwissProt(Molecular functionがRNA-binding)を使用)
 
-以下実行
+
 #!/bin/bash
 #$ -l h_vmem=100G
 
