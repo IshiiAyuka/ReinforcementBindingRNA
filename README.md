@@ -13,9 +13,7 @@ This repository implements a reinforcement learning framework for generating RNA
 
 ---
 
-## Repository URL
-
-This repository:
+## Repository
 
 ```
 https://github.com/IshiiAyuka/ReinforcementBindingRNA
@@ -23,7 +21,7 @@ https://github.com/IshiiAyuka/ReinforcementBindingRNA
 
 ---
 
-## Directory Structure
+## Project Structure
 
 ```
 .
@@ -49,32 +47,31 @@ https://github.com/IshiiAyuka/ReinforcementBindingRNA
 
 ---
 
-## Environment Setup
+# Setup
 
-### Clone the Repository
+## Clone Repository
 
 ```bash
 git clone https://github.com/IshiiAyuka/ReinforcementBindingRNA.git
 cd ReinforcementBindingRNA
 ```
 
----
-
-### Create Conda Environment from environment.yml
+## Create Conda Environment
 
 ```bash
 conda env create -f environment.yml
 conda activate reinforce
 ```
+
 ---
 
 # Dataset
 
-## 1. Supervised Training Data (PPI3D-derived)
+## Supervised Training Data (PPI3D-derived)
 
 Supervised learning data are derived from the **PPI3D database**.
 
-Please download the dataset from:
+Download from:
 
 https://bioinformatics.lt/ppi3d/clusters
 
@@ -93,7 +90,7 @@ These data are used to construct protein–nucleic acid interaction training pai
 
 ---
 
-## 2. Reinforcement Learning Data (SwissProt-derived)
+## Reinforcement Learning Data (SwissProt-derived)
 
 Protein sequences used for reinforcement learning are obtained from **UniProt (SwissProt)**.
 
@@ -123,15 +120,16 @@ Only **reviewed (manually curated) SwissProt entries** are used to ensure sequen
 - Protein sequences must satisfy the ESM2 length constraint (≤ 1022 residues).
 
 ---
-## Embedding
 
-#### From FASTA
+# Embedding
+
+## From FASTA
 
 ```bash
 python ESM2_fasta.py 
 ```
 
-#### From CSV
+## From CSV
 
 ```bash
 python ESM2_CSV.py
@@ -139,11 +137,11 @@ python ESM2_CSV.py
 
 ---
 
-## Training
+# Training
 
 Training is performed using reinforcement learning.
 
-### Standard Execution
+## Standard Execution
 
 ```bash
 python Decoder/main.py 
@@ -157,10 +155,8 @@ Decoder/config.py
 
 ---
 
-## Reward Function
+# Reward Function
 
 ```bash
 python reinforce.py 
 ```
-
----
