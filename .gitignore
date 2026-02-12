@@ -8,12 +8,14 @@ __pycache__/
 env/
 *.ipynb_checkpoints
 code/
+deepclip_result/
 
 # Checkpoints & weights
 *.pth
 *.ckpt
 *.h5
 *.ps
+*.yml
 # Arrays
 *.npz
 *.npy
