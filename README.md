@@ -9,9 +9,17 @@ This repository implements a reinforcement learning framework for generating RNA
 - Protein representation using **ESM2 embeddings**
 - Autoregressive RNA decoder
 - Policy gradient–based reinforcement learning
-- Binding score–based reward computation
-- Multi-chain protein support (concatenated embeddings)
-- Background execution compatible (nohup / cluster)
+- Reward computation via internal binding score model
+
+---
+
+## Repository URL
+
+This repository:
+
+```
+https://github.com/IshiiAyuka/ReinforcementBindingRNA
+```
 
 ---
 
@@ -34,6 +42,7 @@ This repository implements a reinforcement learning framework for generating RNA
 ├── ESM2_CSV.py
 ├── ESM2_fasta.py
 ├── reinforce_swissprot_AR_offtarget...
+├── environment.yml
 ├── .gitignore
 └── README.md
 ```
@@ -42,19 +51,22 @@ This repository implements a reinforcement learning framework for generating RNA
 
 ## Environment Setup
 
-### 1. Create Conda Environment
+### 1. Clone the Repository
 
 ```bash
-conda create -n rna_rl python=3.10
-conda activate rna_rl
+git clone https://github.com/IshiiAyuka/ReinforcementBindingRNA.git
+cd ReinforcementBindingRNA
 ```
+
+---
 
 ### 2. Create Conda Environment from environment.yml
 
 ```bash
 conda env create -f environment.yml
-conda activate rna_rl
+conda activate reinforce
 ```
+
 
 ---
 
@@ -104,19 +116,13 @@ Training is performed using reinforcement learning.
 nohup python -u Decoder/train.py > output.log 2> error.log &
 ```
 
-### Explanation
-
-- `nohup` : run process in background
-- `-u` : unbuffered output (logs written immediately)
-- `output.log` : standard output
-- `error.log` : error output
-- `&` : background execution
-
 ### Monitor Training
 
 ```bash
 tail -f output.log
 ```
+
+---
 
 ### Stop Training
 
@@ -127,10 +133,10 @@ kill <PID>
 
 ---
 
-## Using main.py (Alternative Entry)
+## Using `main.py` (Alternative Entry)
 
 ```bash
-nohup python -u Decoder/main.py > output.log 2> error.log &
+nohup python -u Decoder/main.py > main_output.log 2> main_error.log &
 ```
 
 Hyperparameters are defined in:
@@ -141,13 +147,13 @@ Decoder/config.py
 
 ---
 
-## Inference (RNA Generation)
+## Inference (RNA Sequence Decoding)
 
 ```bash
 nohup python -u Decoder/decode.py > decode.log 2> decode_error.log &
 ```
 
-Generated sequences will be saved according to the path defined in `decode.py`.
+Generated sequences are saved to the output location defined in `decode.py`.
 
 ---
 
@@ -157,7 +163,7 @@ Generated sequences will be saved according to the path defined in `decode.py`.
 nohup python -u Decoder/evaluate.py > eval.log 2> eval_error.log &
 ```
 
-Plotting:
+### Plotting
 
 ```bash
 nohup python -u Decoder/plots.py > plots.log 2> plots_error.log &
@@ -179,7 +185,7 @@ Typical reward components include:
 - Length-normalized free energy
 - Entropy regularization
 
-The policy gradient loss is computed in:
+Policy gradient loss is computed in:
 
 ```
 Decoder/train.py
@@ -189,7 +195,7 @@ Decoder/train.py
 
 ## GPU Usage
 
-Specify GPU:
+Specify GPU for training:
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -221,9 +227,9 @@ random.seed(42)
 
 ## Notes
 
-- `predict.py` is callable directly within Python (no subprocess required).
-- Multi-chain proteins are supported via embedding concatenation.
-- Designed for long-running background jobs.
+- `predict.py` is designed to be called directly inside Python (no subprocess).
+- Multi-chain protein complexes are supported via embedding concatenation.
+- Designed for large-scale background execution.
 
 ---
 
