@@ -79,7 +79,7 @@ python ESM2_fasta.py
 #### From CSV
 
 ```bash
-python ESM2_CSV.py -
+python ESM2_CSV.py
 ```
 
 ---
