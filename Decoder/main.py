@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataset import RNADataset_NAR,RNADataset_AR, custom_collate_fn_AR
-from model import ProteinToRNA_NAR, ProteinToRNA
-from train import train_model_NAR,train_model_AR
-from evaluate import evaluate_model_NAR,evaluate_model
+from dataset import RNADataset_AR, custom_collate_fn_AR
+from model import ProteinToRNA
+from train import train_model_AR
+from evaluate import evaluate_model
 from plots import plot_loss
 import random
 import config

@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-from decode import sample_decode_multi, sample_decode_multi_AR
+from decode import sample_decode_multi_AR
 from utils import global_alignment, local_alignment
 import config
 
