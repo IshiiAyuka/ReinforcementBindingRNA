@@ -4,10 +4,9 @@ import torch.nn as nn
 import esm
 from tqdm import tqdm
 from Bio import SeqIO
+import argparse
 
 # ===== 設定 =====
-fasta_path = "swissprot_RBP.fasta" #Swissprot由来のタンパク質配列データセット
-out_path   = "t30_150M_swissprot_RBP_3D.pt"
 layer = 30
 
 MAX_LEN = 1022  
@@ -31,6 +30,16 @@ batch_converter = alphabet.get_batch_converter()
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model.eval()
+
+# ===== 引数 =====
+parser = argparse.ArgumentParser(description="Extract ESM2 features from a FASTA file.")
+parser.add_argument("input_fasta", help="入力FASTAファイルのパス")
+parser.add_argument("output_pt", help="出力PTファイルのパス")
+args = parser.parse_args()
+
+# 入出力パス
+fasta_path = args.input_fasta
+out_path = args.output_pt
 
 # ===== バッチ特徴量抽出 =====
 @torch.no_grad()

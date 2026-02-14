@@ -9,10 +9,6 @@ csv_path = "ppi3d.csv"
 rna_vocab = {"A": 0, "U": 1, "C": 2, "G": 3, "<pad>": 4, "<sos>": 5, "<eos>": 6}
 rna_ivocab = {v: k for k, v in rna_vocab.items()}
 
-#非逐次生成
-rna_vocab_NAR = {"A": 0, "U": 1, "C": 2, "G": 3, "<pad>": 4, "<sos>": 5, "<eos>": 6, "<MASK>": 7}
-rna_ivocab_NAR = {v: k for k, v in rna_vocab_NAR.items()}
-
 # --- モデル・学習設定 ---
 input_dim = 640
 batch_size = 16

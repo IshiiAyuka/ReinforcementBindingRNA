@@ -126,13 +126,13 @@ Only **reviewed (manually curated) SwissProt entries** are used to ensure sequen
 ## From FASTA
 
 ```bash
-python ESM2_fasta.py 
+python ESM2_fasta.py protein_sequence.fasta output_proteinfeature.pt
 ```
 
 ## From CSV
 
 ```bash
-python ESM2_CSV.py
+python ESM2_CSV.py protein_RNA_binding_data.csv output_proteinfeature.pt
 ```
 
 ---

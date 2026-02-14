@@ -8,6 +8,7 @@ from tqdm import tqdm
 from Bio.PDB.MMCIFParser import MMCIFParser
 from Bio.SeqUtils import seq1
 import pandas as pd
+import argparse
 
 layer = 30
 
@@ -33,6 +34,12 @@ if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 model.eval()
 
+# 引数
+parser = argparse.ArgumentParser(description="Extract ESM2 features from a CSV file.")
+parser.add_argument("input_csv", help="入力CSVファイルのパス")
+parser.add_argument("output_pt", help="出力PTファイルのパス")
+args = parser.parse_args()
+
 # 特徴量抽出
 @torch.no_grad()
 def extract_features(name, seq):
@@ -48,7 +55,7 @@ def extract_features(name, seq):
 
 # === 特徴量抽出実行 ===
 protein_features = {}
-df = pd.read_csv("RNAcompete.csv")
+df = pd.read_csv(args.input_csv)
 
 for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"):
     uid = str(row["file_name"]).strip()       # 例: "3af6_A"
@@ -76,5 +83,5 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="特徴量抽出中 (CSV)"
         continue
 
 # 保存
-torch.save(protein_features, "t30_150M_RNAcompete_3D.pt")
+torch.save(protein_features, args.output_pt)
 print("特徴量を保存しました。")
