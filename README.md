@@ -119,6 +119,9 @@ Only **reviewed (manually curated) SwissProt entries** are used to ensure sequen
 - SwissProt-derived data are used for reinforcement learning–based RNA generation.
 - Protein sequences must satisfy the ESM2 length constraint (≤ 1022 residues).
 
+The following are the data used in this study.
+
+https://drive.google.com/drive/folders/150VlrV9lSkeJFYODzipgd5Gd446fCt0k?usp=drive_link
 ---
 
 # Embedding
