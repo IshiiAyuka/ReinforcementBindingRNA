@@ -73,7 +73,9 @@ Supervised learning data are derived from the **PPI3D database**.
 
 Download from:
 
+```
 https://bioinformatics.lt/ppi3d/clusters
+```
 
 ### Download Instructions
 
@@ -96,7 +98,9 @@ Protein sequences used for reinforcement learning are obtained from **UniProt (S
 
 Download from:
 
+```
 https://www.uniprot.org
+```
 
 ### Download Instructions
 
@@ -119,22 +123,25 @@ Only **reviewed (manually curated) SwissProt entries** are used to ensure sequen
 - SwissProt-derived data are used for reinforcement learning–based RNA generation.
 - Protein sequences must satisfy the ESM2 length constraint (≤ 1022 residues).
 
-The following are the data used in this study.
+The following are the data used in this study:
 
+```
 https://drive.google.com/drive/folders/150VlrV9lSkeJFYODzipgd5Gd446fCt0k?usp=drive_link
+```
+
 ---
 
 # Embedding
 
 ## From FASTA
 
-```bash
+```
 python ESM2_fasta.py protein_sequence.fasta output_proteinfeature.pt
 ```
 
 ## From CSV
 
-```bash
+```
 python ESM2_CSV.py protein_RNA_binding_data.csv output_proteinfeature.pt
 ```
 
@@ -146,9 +153,8 @@ Training is performed using reinforcement learning.
 
 ## Standard Execution
 
-```bash
+```
 python Decoder/main.py /path/to/protein_feat.pt /path/to/data.csv /path/to/trained_model.pt /path/to/loss.png
-
 ```
 
 Hyperparameters are defined in:
@@ -161,6 +167,7 @@ Decoder/config.py
 
 # Reward Function
 
-```bash
-python reinforce.py 
+```
+python reinforce.py /path/to/init_weights.pt /path/to/protein_feat.pt /path/to/proteins.fasta /path/to/output_weights.pt
+
 ```

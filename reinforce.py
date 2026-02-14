@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 import subprocess
 import re
+import argparse
 
 import torch
 import torch.nn as nn
@@ -252,11 +253,17 @@ def compute_extra_reward_on_target(
 #  メイン
 # ===========================
 def main():
-    weights = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_1129.pt"
-    protein_feat_path = "/home/slab/ishiiayuka/M2/t30_150M_swissprot_RBP_3D.pt"
-    output_path = "/home/slab/ishiiayuka/M2/Decoder/weights/t30_150M_decoder_AR_reinforce_1215_8.pt"
+    parser = argparse.ArgumentParser(description="REINFORCE training for ProteinToRNA.")
+    parser.add_argument("weights", help="入力の初期重みファイルのパス")
+    parser.add_argument("protein_feat_path", help="入力のタンパク質特徴量(pt)ファイルのパス")
+    parser.add_argument("fasta_path", help="入力のタンパク質配列(FASTA)ファイルのパス")
+    parser.add_argument("output_path", help="出力の学習後重みファイルのパス")
+    args = parser.parse_args()
 
-    fasta_path = "/home/slab/ishiiayuka/M2/swissprot_RBP.fasta"
+    weights = args.weights
+    protein_feat_path = args.protein_feat_path
+    fasta_path = args.fasta_path
+    output_path = args.output_path
 
     # --- GPU割り当て ---
     device_ids = [2]
