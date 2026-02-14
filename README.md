@@ -144,7 +144,8 @@ Training is performed using reinforcement learning.
 ## Standard Execution
 
 ```bash
-python Decoder/main.py 
+python Decoder/main.py /path/to/protein_feat.pt /path/to/data.csv /path/to/trained_model.pt /path/to/loss.png
+
 ```
 
 Hyperparameters are defined in:

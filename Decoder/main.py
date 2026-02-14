@@ -11,9 +11,21 @@ import config
 from predict import show_test_samples
 from collections import defaultdict
 import pandas as pd
+import argparse
 
 if __name__ == "__main__":
     # --- データ準備 ---
+    parser = argparse.ArgumentParser(description="Train ProteinToRNA model.")
+    parser.add_argument("protein_feat_path", help="入力のタンパク質特徴量のptファイルパス")
+    parser.add_argument("csv_path", help="入力のCSVファイルパス")
+    parser.add_argument("save_model", help="出力のモデル保存パス")
+    parser.add_argument("save_lossplot", help="出力のロスプロット保存パス")
+    args = parser.parse_args()
+
+    config.protein_feat_path = args.protein_feat_path
+    config.csv_path = args.csv_path
+    config.save_model = args.save_model
+    config.save_lossplot = args.save_lossplot
 
     df = pd.read_csv(config.csv_path, low_memory=False)
 
