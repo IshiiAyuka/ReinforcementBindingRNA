@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-#import Decoder.config as config
 import config 
 
 MAX_BODY_LEN = config.max_len - 2

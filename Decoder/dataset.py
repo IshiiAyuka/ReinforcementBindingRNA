@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
-#import Decoder.config as config
 import config 
 
 class RNADataset_AR(Dataset):

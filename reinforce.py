@@ -10,7 +10,6 @@ import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 
 from Decoder.model import ProteinToRNA
-import Decoder.config as config
 from Decoder.dataset import ProteinFeatFastaDictDataset, custom_collate_fn_feat_fasta_dict
 
 from torch.utils.data import DataLoader
@@ -20,6 +19,16 @@ from Decoder.decode import sample_decode_multi_AR
 from LucaOneTasks.src.predict_v1 import run as predict_run
 import multiprocessing as mp
 
+#ハイパーパラメータ
+rna_vocab = {"A": 0, "U": 1, "C": 2, "G": 3, "<pad>": 4, "<sos>": 5, "<eos>": 6}
+rna_ivocab = {v: k for k, v in rna_vocab.items()}
+input_dim = 640
+num_layers = 5
+min_len = 10
+max_len = 100
+lr = 0.0001
+top_k = 4
+temp = 1.5
 
 # ===========================
 #  報酬: マルチGPU並列プール
@@ -318,10 +327,10 @@ def main():
 
     # --- モデル定義 ---
     model = ProteinToRNA(
-        input_dim=config.input_dim,
-        num_layers=config.num_layers,
-        vocab_size=len(config.rna_vocab),
-        max_len=config.max_len
+        input_dim=input_dim,
+        num_layers=num_layers,
+        vocab_size=len(rna_vocab),
+        max_len=max_len
     )
     state_dict = torch.load(weights, map_location="cpu")
     new_state_dict = OrderedDict()
@@ -332,7 +341,7 @@ def main():
 
     model.to(device)
     model = nn.DataParallel(model, device_ids=device_ids, output_device=device_ids[0])
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # --- LucaOne 共通引数（プールへ渡す） ---
     common_kwargs = dict(
@@ -357,9 +366,9 @@ def main():
     # --- 報酬プール初期化 ---
     luca_pool = LucaPPIRewardPool(gpu_ids=reward_gpu_ids, common_kwargs=common_kwargs)
 
-    eos_id = config.rna_vocab["<eos>"]
-    pad_id = config.rna_vocab["<pad>"]
-    sos_id = config.rna_vocab["<sos>"]
+    eos_id = rna_vocab["<eos>"]
+    pad_id = rna_vocab["<pad>"]
+    sos_id = rna_vocab["<sos>"]
 
     for step in tqdm(range(max_steps), desc="Steps"):
         try:
@@ -388,21 +397,21 @@ def main():
         sampled = sample_decode_multi_AR(
             model,
             protein_feat_sel,
-            max_len=config.max_len,
+            max_len=max_len,
             num_samples=1,
-            top_k=config.top_k,
-            temperature=config.temp,
+            top_k=top_k,
+            temperature=temp,
         )
         model.train()
 
         B = protein_feat_sel.size(0)  # == k_eff
-        L = config.max_len
+        L = max_len
         tokens = torch.full((B, L), pad_id, dtype=torch.long, device=device)
         for i, seq in enumerate(sampled):
             ln = min(len(seq), L)
             if ln > 0:
                 tokens[i, :ln] = torch.as_tensor(seq[:ln], dtype=torch.long, device=device)
-            if ln < L and ln >= config.min_len:
+            if ln < L and ln >= min_len:
                 tokens[i, ln] = eos_id
 
         # logits用の入力
@@ -418,13 +427,13 @@ def main():
         logits = logits.clone()
         logits[..., pad_id] = -1e9
         logits[..., sos_id] = -1e9
-        _min_len = min(config.min_len, logits.size(1))
+        _min_len = min(min_len, logits.size(1))
         logits[:, :_min_len, eos_id] = -1e9
-        if config.temp != 1.0:
-            logits = logits / max(config.temp, 1e-6)
+        if temp != 1.0:
+            logits = logits / max(temp, 1e-6)
 
         # 文字列化（オンターゲット k_eff 本だけ）
-        rna_sel = tokens_to_strings(tokens, config.rna_ivocab, eos_id, pad_id, sos_id)
+        rna_sel = tokens_to_strings(tokens, rna_ivocab, eos_id, pad_id, sos_id)
 
         with torch.no_grad():
             R_sel = luca_pool.score_pairs(prot_sel, rna_sel, device=device)  # [k]
