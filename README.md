@@ -171,3 +171,17 @@ Decoder/config.py
 python reinforce.py /path/to/init_weights.pt /path/to/protein_feat.pt /path/to/proteins.fasta /path/to/output_weights.pt
 
 ```
+
+# Inference
+
+```
+
+python Decoder/main_inference.py \
+  --ckpt /path/to/ckpt.pt \
+  --protein_feat_path /path/to/feat.pt \
+  --csv_path /path/to/input.csv \
+  --output_path /path/to/output.csv
+
+```
+
+
