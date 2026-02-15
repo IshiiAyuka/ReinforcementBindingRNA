@@ -186,7 +186,7 @@ python Decoder/main_inference.py \
 
 # weights
 
-```
+
 The trained weights can be obtained from the following link:
 
 ```
