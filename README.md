@@ -184,4 +184,13 @@ python Decoder/main_inference.py \
 
 ```
 
+# weights
 
+```
+The trained weights can be obtained from the following link:
+
+```
+https://drive.google.com/drive/folders/1qEZbcafU578iyxtN3Jr0nsxtiJbgnSwA?usp=drive_link
+```
+
+```
