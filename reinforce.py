@@ -1,9 +1,15 @@
+import os
+import sys
 import random
 from collections import OrderedDict
 
 import subprocess
 import re
 import argparse
+
+# Ensure Decoder-local imports like `import config` work when running from repo root.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, "Decoder"))
 
 import torch
 import torch.nn as nn
