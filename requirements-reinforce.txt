@@ -1,0 +1,13 @@
+# Extra pip dependencies to run `reinforce.py` (REINFORCE training + LucaOneTasks reward).
+#
+# Notes:
+# - This file does not install PyTorch. Install PyTorch separately:
+#   https://pytorch.org/get-started/locally/
+# - `reinforce.py` depends on LucaOneTasks. See README for cloning instructions.
+
+subword-nmt>=0.3.8
+transformers==4.40.2
+matplotlib>=3.6
+pynvml>=11
+statsmodels>=0.14
+

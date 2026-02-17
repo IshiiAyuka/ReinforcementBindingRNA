@@ -29,7 +29,8 @@ python -c "import torch, pandas, tqdm; print('ok')"
 If you do not use conda, you can run with system Python as well:
 
 ```bash
-/usr/bin/python3 -m pip install --user fair-esm
+# Install PyTorch first (CPU/CUDA): https://pytorch.org/get-started/locally/
+/usr/bin/python3 -m pip install --user -r requirements.txt
 /usr/bin/python3 -c "import torch, pandas, tqdm, Bio, esm; print('ok')"
 ```
 
@@ -190,6 +191,12 @@ This step depends on LucaOneTasks (reward model runner). From the repository roo
 ```bash
 git clone https://github.com/LucaOne/LucaOneTasks.git LucaOneTasks
 ln -s LucaOneTasks/src src
+```
+
+If you use pip, install extra dependencies:
+
+```bash
+python -m pip install -r requirements-reinforce.txt
 ```
 
 ```bash

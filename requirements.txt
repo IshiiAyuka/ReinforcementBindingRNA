@@ -1,0 +1,13 @@
+# Minimal pip dependencies (excluding PyTorch).
+#
+# Install PyTorch separately based on your CUDA/CPU environment:
+#   https://pytorch.org/get-started/locally/
+#
+# Then:
+#   python -m pip install -r requirements.txt
+
+pandas>=1.4
+tqdm>=4.27
+biopython>=1.80
+fair-esm==2.0.0
+
